@@ -170,7 +170,7 @@ wire [3:0] IRP_Timer, IRP_DMA;
 ////////////////////////////
 
 gba_cpu cpu (
-    .clk(clk16), .rst(~gbaon), .cpu_en(cpu_en & ~halt), .cpu_restart(~gbaon), .fiq(1'b0), 
+    .clk(clk16), .rst(~gbaon), .cpu_en(cpu_en & ~halt & ~overlay), .cpu_restart(~gbaon), .fiq(1'b0), 
     .irq(cpu_IRP), .thumb(thumb),
     .ram_abort(1'b0), .ram_rdata(ram_rdata), .rom_abort(1'b0), .rom_data(rom_data),
     .ram_addr(ram_addr), .ram_cen(ram_cen), .ram_flag(ram_be), .ram_wdata(ram_wdata),
@@ -479,6 +479,7 @@ assign joy_usb2 = 12'b0;
 
 `else          // VERILATOR
 wire [11:0] joy_btns_gba = joy_btns;
+wire overlay = 1'b0;        // no OSD menu under verilator, never pause for menu
 `endif
 
 wire [11:0] hid1, hid2;

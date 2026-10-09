@@ -13,7 +13,7 @@ sed -e 's/input reg  \[7:0\] kbd_data/input [7:0] kbd_data/' \
 
 run() {                                        # compile + run one testbench
     if docker image inspect tangcore-iv:1 >/dev/null 2>&1; then
-        docker run --rm -v "$PWD:/w" -v "$PWD/$RTL:/src:ro" -w /w \
+        docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/w" -v "$PWD/$RTL:/src:ro" -w /w \
             --entrypoint sh tangcore-iv:1 \
             -c "iverilog -g2012 -o $1 $2 && vvp $1 $EXTRA"
     else
@@ -38,9 +38,6 @@ run_tb() {                                      # one testbench by name
       tb_saveram_eeprom)
         run tb_saveram_eeprom.out \
           "tb_saveram_eeprom.v iosys_sim.v $SIM/iosys/uart_fixed.v $SIM/iosys/textdisp.v $SIM/iosys/gowin_dpb_menu.v dpb_sim.v $SIM/memory/gba_eeprom.sv $SIM/memory/mem_eeprom_sim.v" ;;
-      tb_probe_t)
-        run tb_probe_t.out \
-          "tb_probe_t.v iosys_sim.v $SIM/iosys/uart_fixed.v $SIM/iosys/textdisp.v $SIM/iosys/gowin_dpb_menu.v dpb_sim.v $SIM/memory/gba_eeprom.sv $SIM/memory/mem_eeprom_sim.v" ;;
     esac
 }
 

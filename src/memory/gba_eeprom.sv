@@ -182,14 +182,7 @@ always @(posedge clk) begin
             end
 
             RD_HEAD: if (~write) begin      // 4 not-care bits before read data is sent
-                if (cnt == 3) begin
-                    state <= RD_DATA;
-                    // douta trails the address by one clock: the last head
-                    // clock must read off=0 (its bit 7 lands on the wire as
-                    // the first data clock begins), and the data phase then
-                    // runs off=1..63 so nothing is duplicated or dropped.
-                    off <= 6'd1;
-                end
+                if (cnt == 3) state <= RD_DATA;
                 cnt <= cnt + 1;
             end
 

@@ -184,8 +184,10 @@ begin
     swrite <= 0;                                    // tri-state out: clock data
     for (k = 0; k < 4; k = k + 1) @(posedge clk);   // 4 don't-care bits
     got = 0;
+    // gba_memory consumes a BRAM read in the cycle after the access
+    // (bram_addr_r), i.e. after the access edge's updates have landed.
     for (k = 63; k >= 0; k = k - 1) begin
-        @(posedge clk);
+        @(posedge clk); #1;
         got[k] = dout;
     end
     swrite <= 1;
@@ -266,9 +268,9 @@ initial begin
         end
 
     if (errs == 0) $display("tb_saveram_eeprom: PASS");
-    else $display("tb_saveram_eeprom: FAIL, %0d errors", errs);
+    else $fatal(1, "tb_saveram_eeprom: FAIL, %0d errors", errs);
     $finish;
 end
 
-initial begin #(40_000_000); $display("TIMEOUT: sim hang"); $finish; end
+initial begin #(40_000_000); $fatal(1, "TIMEOUT: sim hang"); end
 endmodule

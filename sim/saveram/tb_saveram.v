@@ -291,9 +291,9 @@ initial begin
         core_read_check({9'd0, 8'd15, k[8:0]}, pat(8'hC3, k));
 
     if (errs == 0) $display("tb_saveram: PASS");
-    else $display("tb_saveram: FAIL, %0d errors", errs);
+    else $fatal(1, "tb_saveram: FAIL, %0d errors", errs);
     $finish;
 end
 
-initial begin #(40_000_000); $display("TIMEOUT: sim hang"); $finish; end
+initial begin #(40_000_000); $fatal(1, "TIMEOUT: sim hang"); end
 endmodule

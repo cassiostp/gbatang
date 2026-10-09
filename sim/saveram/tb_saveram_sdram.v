@@ -232,7 +232,7 @@ initial begin
     wait (busy == 0);                     // SDRAM init done (200 us)
     repeat (50) @(posedge mclk);
 
-    $display("T1 start t=%0t");
+    $display("T1 start t=%0t", $time);
     // 1. restore two blocks: block 3 (bank 0) and block 130 (bank 1)
     restore(16'd3, 8'h20);
     restore(16'd130, 8'hB4);
@@ -241,7 +241,7 @@ initial begin
         sdram_check_byte({8'h82, 9'd0} + k[16:0], pat(8'hB4, k));
     end
 
-    $display("T2 start t=%0t");
+    $display("T2 start t=%0t", $time);
     // 2. the game writes two bytes in bank 0 -> one dirty notice through the
     //    clk67 pulse catch; the bytes land where the save channel would read them
     // A flash game's byte program needs the flash FSM's f_addr quirk that a
@@ -256,7 +256,7 @@ initial begin
     sdram_check_byte(17'h00636, 8'h5A);
     sdram_check_byte(17'h00637, 8'h6B);
 
-    $display("T3 start t=%0t");
+    $display("T3 start t=%0t", $time);
     // 3. byte-exact dumps: block 3 now has the game's two bytes inside the
     //    restored pattern; block 130 is the bank-1 pattern unchanged
     request_dump(16'd3);
@@ -273,7 +273,7 @@ initial begin
     dump_header(16'd0);
     for (k = 0; k < 512; k = k + 1) expect_byte(pat(8'h00, k));
 
-    $display("T4 start t=%0t");
+    $display("T4 start t=%0t", $time);
     // 4. a flash byte-write sequence (AA/55/A0 through the flash protocol,
     //    config_backup_type=2): the final write dirties, and the data lands
     force dut.f_mode = 3'd1;     // MODE_WRITE, see the note in test 2
@@ -283,7 +283,7 @@ initial begin
     sdram_check_byte(17'h02000, 8'hC7);
 
     if (errs == 0) $display("tb_saveram_sdram: PASS");
-    else $display("tb_saveram_sdram: FAIL, %0d errors", errs);
+    else $fatal(1, "tb_saveram_sdram: FAIL, %0d errors", errs);
     $finish;
 end
 
@@ -320,5 +320,5 @@ begin
 end
 endtask
 
-initial begin #(40_000_000); $display("TIMEOUT: sim hang"); $finish; end
+initial begin #(40_000_000); $fatal(1, "TIMEOUT: sim hang"); end
 endmodule

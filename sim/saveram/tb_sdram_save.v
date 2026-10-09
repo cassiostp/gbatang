@@ -274,9 +274,9 @@ initial begin
     for (k = 0; k < 512; k = k + 1) sv_read(k[16:0], pat(k));
 
     if (errs == 0) $display("tb_sdram_save: PASS");
-    else $display("tb_sdram_save: FAIL, %0d errors", errs);
+    else $fatal(1, "tb_sdram_save: FAIL, %0d errors", errs);
     $finish;
 end
 
-initial begin #(40_000_000); $display("TIMEOUT: sim hang"); $finish; end
+initial begin #(40_000_000); $fatal(1, "TIMEOUT: sim hang"); end
 endmodule

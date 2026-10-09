@@ -1,5 +1,5 @@
 
-module gba_gpu(fclk, mclk, phase, reset, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_bus_rnw, gb_bus_ena, gb_bus_done, gb_bus_acc, gb_bus_be, gb_bus_rst, 
+module gba_gpu(fclk, mclk, phase, reset, pause, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_bus_rnw, gb_bus_ena, gb_bus_done, gb_bus_acc, gb_bus_be, gb_bus_rst, 
         lockspeed, interframe_blend, maxpixels, shade_mode, hdmode2x_bg, hdmode2x_obj, bitmapdrawmode, pixel_out_x, pixel_out_2x, pixel_out_y, pixel_out_addr, pixel_out_data, pixel_out_we, pixel2_out_x, pixel2_out_data, pixel2_out_we, 
         //new_cycles, new_cycles_valid, 
         IRP_HBlank, IRP_VBlank, IRP_LCDStat, hblank_trigger_dma, vblank_trigger_dma, 

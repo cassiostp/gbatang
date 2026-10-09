@@ -15,6 +15,12 @@
 //
 // 4. RV can access Flash/SRAM/EEPROM for save persistence starting from 0x700000 (max 128KB). 
 //
+// 5. The save-RAM channel (sv_*, for the iosys save protocol) byte-reads/writes the
+//    same 128KB Flash/SRAM region with a static bank mapping like the RV window's:
+//    sv_addr[16] picks the flash bank, sv_addr[15:0] the offset. It is the lowest
+//    priority client and only runs in slots no CPU/refresh/RV request wants, so a
+//    running game never waits for it.
+//
 // We need to use both 32MB chips as the cartridge is already 32MB. CPU uses all banks of 
 // chip 0 (cartridge ROM) and bank 0 of chip 1 (EWRAM / backup).  RISC-V uses bank 1 of 
 // chip 1.
@@ -100,6 +106,22 @@ module sdram_gba
     output reg        rv_req_ack,   // ready for new requests. read data available on NEXT mclk
     input             rv_we,
 
+    // Save-RAM client (iosys save channel): byte accesses into the 128KB cart RAM --
+    // flash bank 0 at 0..64KB, bank 1 at 64..128KB (the static bank mapping, like the
+    // RV window's, not the live f_bank). sv_req is a toggle from the async iosys clock
+    // domain (2FF-synced here) and sv_ack toggles once per completed transaction; a
+    // level copy of req would let a mid-frame toggle steal an ack for a request that
+    // never rode a frame. Lowest priority in the RAS arbitration: every CPU, refresh
+    // and RV request wins and this one retries later, so it only ever uses slots the
+    // game leaves idle -- the game is never delayed by a save access. Read data is
+    // valid at the NEXT cycle[3], one mclk after ack; the iosys engine waits for it.
+    input      [16:0] sv_addr,      // byte address into the 128KB cart RAM
+    input       [7:0] sv_din,       // byte access, DQM selects the lane
+    input             sv_we,
+    input             sv_req,       // toggle, async to clk
+    output reg        sv_ack,       // toggle, clk domain
+    output reg  [7:0] sv_dout,
+
     output reg [23:0] total_refresh,
     output reg        busy
 );
@@ -157,16 +179,33 @@ reg        f_bank;      // active flash bank
 reg [16:1] f_erase_addr;// halfword address for erase
 
 // requests
-reg  [1:0] port [0:1];  // port[0]: CPU output port, port[1]: whether RV req is valid
-reg [25:0] addr_latch[2];
-reg [31:0] din_latch[2];
-reg  [1:0] oe_latch;
-reg  [1:0] we_latch;
-reg  [3:0] ds_latch[0:1];
+reg  [1:0] port [0:2];  // port[0]: CPU output port, port[1]: whether RV req is valid,
+                        // port[2]: whether a save-channel transaction is in flight
+reg [25:0] addr_latch[0:2];
+reg [31:0] din_latch[0:2];
+reg  [2:0] oe_latch;
+reg  [2:0] we_latch;
+reg  [3:0] ds_latch[0:2];
 
 wire clkref = mclk;
 reg clkref_r;
 always @(posedge clk) clkref_r <= clkref;
+
+// Save channel request: sv_req is a toggle in the (async) iosys clock domain.
+// One transaction per sync'ed edge; sv_req_q is the level arbitration sees.
+reg [1:0] sv_req_s = 2'b00;
+reg       sv_req_q = 1'b0;
+always @(posedge clk) begin
+    if (!resetn) begin
+        sv_req_s <= 2'b00;
+        sv_req_q <= 1'b0;
+    end else begin
+        sv_req_s <= {sv_req_s[0], sv_req};
+        if (sv_req_s[1] ^ sv_req_s[0])
+            sv_req_q <= sv_req_s[0];       // s[0] holds the NEW value; s[1] is the old one
+    end
+end
+wire new_sv = sv_req_q ^ sv_ack;
 
 reg [8:0]  refresh_cnt;
 reg        need_refresh;
@@ -190,6 +229,14 @@ always @(posedge clk) begin
         normal <= 0;
         setup <= 0;
         setup_ncs <= 0;
+        sv_ack <= 0;            // sv_req_s/sv_req_q reset in their own always block
+        port[0] <= 0; port[1] <= 0; port[2] <= 0;   // match the power-on 0 of the FFs
+        cpu_ready <= 0;
+        need_refresh <= 0;
+        refresh_chip1 <= 0;
+        backup_written <= 0;
+        flash <= FLASH_IDLE; f_mode <= MODE_NORMAL; f_bank <= 0;
+        f_erase_addr <= 0; total_refresh <= 0;
     end else begin
         reg hi, flash_cmd_en;
         reg is_flash;
@@ -292,6 +339,11 @@ always @(posedge clk) begin
                 if (oe_latch[1]) rv_dout <= dq_in;
                 port[1] <= 0;
             end
+            if (cycle[3] & port[2] != 0) begin              // save-RAM channel
+                if (oe_latch[2])
+                    sv_dout <= ds_latch[2][0] ? dq_in[7:0] : dq_in[15:8];
+                port[2] <= 0;
+            end
 
             ////////////////////////////////////////
             // RAS
@@ -363,6 +415,19 @@ always @(posedge clk) begin
                     ds_latch[1] <= {rv_ds,rv_ds};
 
                     rv_req_ack <= rv_req; 
+                end else if (new_sv) begin                  // new save-RAM request, lowest priority
+                    port[2] <= 1;
+
+                    cmd <= {1'b1, CMD_BankActivate};        // chip 1, bank 0: the cart RAM region
+                    addr_latch[2] <= {9'b1000_0001_0, sv_addr[16], sv_addr[15:1], 1'b0};  // 128KB, both flash banks; byte-address positions like the RV path (CAS reads the column from addr[9:1])
+                    SDRAM_BA <= 2'b00;
+                    a <= {5'b00001, 1'b0, sv_addr[16:10]};  // row bits of the address above
+                    din_latch[2] <= {16{sv_din}};           // both lanes; ds picks one
+                    we_latch[2] <= sv_we;
+                    oe_latch[2] <= ~sv_we;
+                    ds_latch[2] <= sv_addr[0] ? 4'b0010 : 4'b0001;
+
+                    sv_ack <= ~sv_ack;                      // toggle: this request is on the bus
                 end 
 
                 if (~need_refresh) refresh_chip1 <= 0;
@@ -478,9 +543,9 @@ always @(posedge clk) begin
             ////////////////////////////////////////
             // CAS
             ////////////////////////////////////////
-            if (cycle[0] & (port[0] != 0 | port[1] != 0)) begin
-                reg p;
-                p = port[1];
+            if (cycle[0] & (port[0] != 0 | port[1] != 0 | port[2] != 0)) begin
+                reg [1:0] p;
+                p = port[2] != 0 ? 2 : port[1];     // one of the three, never more (see RAS)
                 cmd <= {addr_latch[p][25], we_latch[p]?CMD_Write:CMD_Read};
                 if (we_latch[p]) begin
                     dq_oen <= 0;

@@ -115,6 +115,7 @@ module gba_memory (
     input      [12:0]   eeprom_addr,
     output      [7:0]   eeprom_rdata,
     input       [7:0]   eeprom_wdata,
+    output              eeprom_written,   // the GAME wrote the EEPROM (pulse)
 
     // Loader interface
     input       [2:0]   loading      /* xsynthesis syn_keep=1 */,     // 0: off, 1: ROM, 2: Cart RAM, 3: Config, 4: BIOS
@@ -188,7 +189,6 @@ localparam BACKUP_EEPROM = 3'd4;
 
 reg         config_eeprom_type = 1;                 // 1: 64kbit eeprom, 0: 4kbit
 reg         active;
-wire        eeprom_written;
 
 // these drive all bram-backed memory (iwram, bios, palette, vram, oam, eeprom)
 reg  [1:0]  bram_port;      // 1: ROM, 2: RAM, 3: DMA

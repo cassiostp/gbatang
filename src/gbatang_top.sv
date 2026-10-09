@@ -325,8 +325,43 @@ wire  [7:0] eeprom_rdata, eeprom_wdata;
 wire        sdram_busy;
 wire  [2:0] config_backup_type;
 wire        backup_written;
+wire        eeprom_written;
 
 wire [16:0] dma_eepromcount;
+
+// ---- battery-save channel (iosys SAVE_IF, SAVE_SYNC=0) --------------------
+// The channel addresses 128KB: an EEPROM game routes it to the EEPROM's second
+// port (blocks 0..15 = the 8KB chip), any other backup type to sdram_gba's
+// save client, where sv_addr[16] is the flash bank. The two targets never
+// overlap because the game has exactly one backup chip.
+wire [17:0] sv_addr;
+wire [7:0]  sv_din, sv_q;
+wire        sv_we, sv_req, sv_ack, sv_core_we;
+wire [16:0] sdram_sv_addr;
+wire [7:0]  sdram_sv_q;
+wire        sdram_sv_ack;
+wire        eep_save = config_backup_type == 3'd4;
+
+assign sdram_sv_addr = sv_addr[16:0];
+assign sv_q = eep_save ? eeprom_rdata : sdram_sv_q;
+assign sv_ack = eep_save ? sv_req : sdram_sv_ack;   // the EEPROM port answers in one clock
+
+// EEPROM accesses (port B of the chip; the save channel is its only client in
+// the BL616 build). Reads are just addr -> doutb. Writes strobe once per
+// transaction: the engine holds sv_we between UART bytes, and the save RAM
+// must not keep hammering a byte while the game's serial side is mid-write.
+reg sv_req_d = 0;
+always @(posedge clk16) sv_req_d <= sv_req;
+assign eeprom_wr    = (sv_req ^ sv_req_d) & sv_we & eep_save;
+assign eeprom_addr  = sv_addr[12:0];
+assign eeprom_wdata = sv_din;
+
+// Dirty: backup_written is a pulse inside the SDRAM clock's mclk frame, so it
+// is one mclk high and a two-flop catch in clk16 never misses it (the same
+// sampling gba_memory's cartram_dirty relies on). eeprom_written is clk16.
+reg [2:0] bw_s = 3'b000;
+always @(posedge clk16) bw_s <= {bw_s[1:0], backup_written};
+assign sv_core_we = (bw_s[1] & ~bw_s[2]) | (eeprom_written & eep_save);
 
 gba_memory mem (
     .clk(clk16), .resetn(resetn), .ce(1'b1),
@@ -348,6 +383,7 @@ gba_memory mem (
     // EEPROM access from RV
     .eeprom_rd(eeprom_rd), .eeprom_wr(eeprom_wr), .eeprom_addr(eeprom_addr),
     .eeprom_rdata(eeprom_rdata), .eeprom_wdata(eeprom_wdata),
+    .eeprom_written(eeprom_written),
 
     // Loader interface
     .loading(loading), .loader_data(loader_do), .loader_valid(loader_do_valid),
@@ -388,6 +424,9 @@ sdram_gba sdram (
     .rv_dout(rv_mem_dout), .rv_req(rv_mem_req), .rv_req_ack(rv_mem_req_ack), 
     .rv_we(rv_mem_we),
 
+    .sv_addr(sdram_sv_addr), .sv_din(sv_din), .sv_we(sv_we),
+    .sv_req(sv_req & ~eep_save), .sv_ack(sdram_sv_ack), .sv_dout(sdram_sv_q),
+
     .busy(sdram_busy)
 );
 
@@ -401,6 +440,8 @@ sdram_sim sdram (
     .cpu_ready(cpu_mem_ready), .cpu_port(cpu_mem_port), 
     .config_backup_type(config_backup_type)
 );
+
+assign sdram_sv_ack = sv_req;     // no SDRAM save port in the sim; ack the engine directly
 
 `endif
 
@@ -547,7 +588,8 @@ gba2hdmi video (            // BRAM-based framebuffer
 // iosys for menu, rom loading and other functions
 ////////////////////////////
 
-iosys_bl616 #(.CORE_ID(3), .COLOR_LOGO(15'b01111_01100_10101), .FREQ(16_650_000)) iosys (
+iosys_bl616 #(.CORE_ID(3), .COLOR_LOGO(15'b01111_01100_10101), .FREQ(16_650_000),
+    .SAVE_IF(1), .SAVE_AW(18), .SAVE_SYNC(0)) iosys (
 `ifdef DDR3_FRAMEBUFFER
     .clk(clk16), .hclk(clk50),      // hclk=clk50: goes to framebuffer_ddr3 for overlay
 `else
@@ -565,6 +607,10 @@ iosys_bl616 #(.CORE_ID(3), .COLOR_LOGO(15'b01111_01100_10101), .FREQ(16_650_000)
 `else
     .rom_loading(loading), .rom_do(loader_do), .rom_do_valid(loader_do_valid), 
 `endif
+
+    // battery-save channel: cart RAM (SDRAM) or the EEPROM's second port, see above
+    .sv_addr(sv_addr), .sv_din(sv_din), .sv_we(sv_we), .sv_q(sv_q),
+    .sv_core_we(sv_core_we), .sv_req(sv_req), .sv_ack(sv_ack),
 
     .uart_tx(UART_TXD), .uart_rx(UART_RXD)
 );

@@ -11,6 +11,7 @@ module gba_gpu(fclk, mclk, phase, reset, gb_bus_din, gb_bus_dout, gb_bus_adr, gb
     input                     mclk;     // 16Mhz main GBA clock
     input                     phase;
     input                     reset;
+    input                     pause;        // 1: freeze the GPU (menu pause)
     
     `GB_BUS_PORTS_DECL;
 
@@ -110,6 +111,7 @@ module gba_gpu(fclk, mclk, phase, reset, gb_bus_din, gb_bus_dout, gb_bus_adr, gb
         .mclk(mclk),
         .reset(reset),
         .lockspeed(lockspeed),
+        .pause(pause),
         
         `GB_BUS_PORTS_INST,
         

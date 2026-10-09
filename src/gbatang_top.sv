@@ -126,6 +126,7 @@ wire cartram_dirty_clear;
 wire cartram_dirty;
 
 wire [31:0] core_config;
+wire pause = core_config[17] & gbaon;     // menu pause, only active while the game runs
 
 /* verilator public_on */
 
@@ -170,7 +171,7 @@ wire [3:0] IRP_Timer, IRP_DMA;
 ////////////////////////////
 
 gba_cpu cpu (
-    .clk(clk16), .rst(~gbaon), .cpu_en(cpu_en & ~halt & ~overlay), .cpu_restart(~gbaon), .fiq(1'b0), 
+    .clk(clk16), .rst(~gbaon), .cpu_en(cpu_en & ~halt & ~pause), .cpu_restart(~gbaon), .fiq(1'b0), 
     .irq(cpu_IRP), .thumb(thumb),
     .ram_abort(1'b0), .ram_rdata(ram_rdata), .rom_abort(1'b0), .rom_data(rom_data),
     .ram_addr(ram_addr), .ram_cen(ram_cen), .ram_flag(ram_be), .ram_wdata(ram_wdata),
@@ -236,7 +237,7 @@ wire [3:0] palette_oam_we;
 wire phase = ~clk16;    // 0: internal GPU work, 1: get data from CPU
 
 gba_gpu #(.FCLK_SPEED(3)) gpu (
-    .fclk(clk50), .mclk(clk16), .phase(phase), .reset(~gbaon),
+    .fclk(clk50), .mclk(clk16), .phase(phase), .reset(~gbaon), .pause(pause),
     `GB_BUS_PORTS_INST,
 
     // config
@@ -279,7 +280,7 @@ gba_gpu #(.FCLK_SPEED(3)) gpu (
 ////////////////////////////
 
 gba_sound sound (
-    .clk(clk16), .reset(~gbaon), .gb_on(1'b1),
+    .clk(clk16), .reset(~gbaon), .gb_on(~pause),
     `GB_BUS_PORTS_INST,
     .timer0_tick(timer0_tick), .timer1_tick(timer1_tick), .sound_dma_req(sound_dma_req),
     .sound_out_left(sound_out_left), .sound_out_right(sound_out_right),
@@ -419,7 +420,7 @@ gba_interrupts intr (.clk(clk16), .resetn(gbaon),
 ////////////////////////////
 
 gba_dma dma (
-    .clk100(clk16), .reset(~gbaon), .ce(1'b1 /*~halt*/), `GB_BUS_PORTS_INST, 
+    .clk100(clk16), .reset(~gbaon), .ce(~pause /*~halt*/), `GB_BUS_PORTS_INST, 
     .new_cycles(1), .new_cycles_valid(1'b1), .irp_dma(IRP_DMA), .lastread_dma(), 
     .dma_on(dma_on), .do_step(1'b1), .cpu_preemptable(cpu_en),      // always start DMA after a ready cycle
     .sound_dma_req(sound_dma_req), .hblank_trigger(hblank_trigger), .vblank_trigger(vblank_trigger), 
@@ -435,7 +436,7 @@ gba_dma dma (
 // Timer
 ////////////////////////////
 gba_timer timer (
-    .clk(clk16), .gb_on(1'b1), .reset(~gbaon), 
+    .clk(clk16), .gb_on(~pause), .reset(~gbaon), 
     `GB_BUS_PORTS_INST,
     .IRP_Timer(IRP_Timer),  .timer0_tick(timer0_tick), .timer1_tick(timer1_tick), 
     .debugout0(), .debugout1(), .debugout2(), .debugout3() );
@@ -510,9 +511,9 @@ gba2hdmi_ddr3 video (       // DDR3-based framebuffer
 	.clk27(clk27), .resetn(resetn), .clk_pixel(hclk), 
     .clk(clk50), .pixel_data(pixel_out_data), .pixel_x(pixel_out_x), .pixel_y(pixel_out_y),
     .pixel_we(pixel_out_we),
-    .sound_left(sound_out_left), .sound_right(sound_out_right),
+    .sound_left(pause ? 16'd0 : sound_out_left), .sound_right(pause ? 16'd0 : sound_out_right),
     .overlay(overlay), .overlay_x(overlay_x), .overlay_y(overlay_y), .overlay_color(overlay_color),
-    .freeze(core_config[6]),
+    .freeze(core_config[6] | core_config[17]),
 
     .ddr_addr(ddr_addr), .ddr_bank(ddr_bank), .ddr_cs(ddr_cs), .ddr_ras(ddr_ras), .ddr_cas(ddr_cas),
     .ddr_we(ddr_we), .ddr_ck(ddr_ck), .ddr_ck_n(ddr_ck_n), .ddr_cke(ddr_cke), .ddr_odt(ddr_odt),

@@ -9,6 +9,7 @@ module gba_gpu_timing(fclk, mclk, reset, lockspeed, gb_bus_din, gb_bus_dout, gb_
     input                  mclk;
     input                  reset;
     input                  lockspeed;
+    input                  pause;                   // 1: freeze (menu pause)
     
     `GB_BUS_PORTS_DECL;
     
@@ -126,7 +127,7 @@ module gba_gpu_timing(fclk, mclk, reset, lockspeed, gb_bus_din, gb_bus_dout, gb_
                 REG_DISPSTAT_H_Blank_flag <= 0;
                 REG_DISPSTAT_V_Blank_flag <= 0;
             
-            end else /* if (gb_on)*/ begin
+            end else if (!pause) begin
                 
                 // really required?
                 // if (forcedblank && !new_forcedblank) then

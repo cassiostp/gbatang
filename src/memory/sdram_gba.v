@@ -212,7 +212,11 @@ reg        need_refresh;
 reg        refresh_chip1;
 
 always @(posedge clk) begin
-	if (refresh_cnt == 0)
+    // reset here, in this block: need_refresh has exactly one driver (Gowin
+    // rejects a net driven from two always blocks)
+	if (~resetn)
+        need_refresh <= 0;
+    else if (refresh_cnt == 0)
 		need_refresh <= 0;
 	else if (refresh_cnt == RFRSH_CYCLES)
 		need_refresh <= 1;
@@ -232,7 +236,6 @@ always @(posedge clk) begin
         sv_ack <= 0;            // sv_req_s/sv_req_q reset in their own always block
         port[0] <= 0; port[1] <= 0; port[2] <= 0;   // match the power-on 0 of the FFs
         cpu_ready <= 0;
-        need_refresh <= 0;
         refresh_chip1 <= 0;
         backup_written <= 0;
         flash <= FLASH_IDLE; f_mode <= MODE_NORMAL; f_bank <= 0;

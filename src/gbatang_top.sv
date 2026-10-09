@@ -548,7 +548,11 @@ gba2hdmi video (            // BRAM-based framebuffer
 ////////////////////////////
 
 iosys_bl616 #(.CORE_ID(3), .COLOR_LOGO(15'b01111_01100_10101), .FREQ(16_650_000)) iosys (
+`ifdef DDR3_FRAMEBUFFER
     .clk(clk16), .hclk(clk50),      // hclk=clk50: goes to framebuffer_ddr3 for overlay
+`else
+    .clk(clk16), .hclk(hclk),       // BRAM framebuffer reads the overlay in the pixel clock domain
+`endif
     .resetn(resetn),
 
     .overlay(overlay), .overlay_x(overlay_x), .overlay_y(overlay_y), .overlay_color(overlay_color),

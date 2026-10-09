@@ -280,7 +280,7 @@ gba_gpu #(.FCLK_SPEED(3)) gpu (
 ////////////////////////////
 
 gba_sound sound (
-    .clk(clk16), .reset(~gbaon), .gb_on(~pause),
+    .clk(clk16), .reset(~gbaon), .gb_on(1'b1),     // gb_on=0 resets the channels; the output is muted instead
     `GB_BUS_PORTS_INST,
     .timer0_tick(timer0_tick), .timer1_tick(timer1_tick), .sound_dma_req(sound_dma_req),
     .sound_out_left(sound_out_left), .sound_out_right(sound_out_right),

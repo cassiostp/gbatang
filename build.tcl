@@ -55,6 +55,7 @@ if {$dev eq "console60k" || $dev eq "mega60k"} {
    # 138K uses BRAM framebuffer
    add_file -type verilog "src/fb.v"
    add_file -type verilog "src/gba2hdmi.sv"
+   add_file -type verilog "src/scanlines.v"
  } else {
     error "Unknown device $dev"
 }

@@ -17,6 +17,7 @@
         <File path="src/ddr3_memory_interface/ddr3_memory_interface.v" type="file.verilog" enable="1"/>
         <File path="src/fb.v" type="file.verilog" enable="1"/>
         <File path="src/gba2hdmi.sv" type="file.verilog" enable="1"/>
+        <File path="src/scanlines.v" type="file.verilog" enable="1"/>
         <File path="src/gba2hdmi_ddr3.sv" type="file.verilog" enable="1"/>
         <File path="src/gbatang_top.sv" type="file.verilog" enable="1"/>
         <File path="src/gpu/gba_drawer_merge.v" type="file.verilog" enable="1"/>

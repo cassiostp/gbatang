@@ -536,6 +536,7 @@ gba2hdmi video (            // BRAM-based framebuffer
     .overlay(overlay), 
 `endif
     .overlay_x(overlay_x), .overlay_y(overlay_y), .overlay_color(overlay_color),
+    .scanlines(core_config[16]),
 	.tmds_clk_n(tmds_clk_n), .tmds_clk_p(tmds_clk_p), .tmds_d_n(tmds_d_n),
 	.tmds_d_p(tmds_d_p)
 );

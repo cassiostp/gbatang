@@ -2,9 +2,10 @@
 // writes the 128KB cart RAM region (flash bank 1 at 64KB..128KB), verified
 // against a behavioral 16-bit SDRAM (sdram_model.v). Covers ack'd byte
 // writes/reads (byte lane, both banks, whole-region walk), the game's own
-// writes showing through into the save channel and back, arbitration against a
-// full-rate CPU stream (the save request starves while it runs and completes
-// after), and that a save transaction never issues twice. Run with run.sh.
+// writes showing through into the save channel and back, arbitration (the CPU
+// wins a slot both want; a save request queued behind a full-rate CPU stream
+// still gets the slots the stream leaves), and that a save transaction never
+// issues twice. Run with run.sh.
 
 `timescale 1ns/1ps
 
@@ -184,6 +185,7 @@ end
 
 integer k;
 reg ack_before;
+time t_cpu, t_sv;
 
 initial begin
     repeat (10) @(posedge clk);
@@ -248,18 +250,50 @@ initial begin
     sv_read(17'h02000, 8'h11);              // the game's bytes landed in the
     sv_read(17'h02002, 8'h44);              // save channel's address space
 
-    // 4. arbitration: with a full-rate CPU stream running, the save request
-    //    must NOT be served (no ack) while it runs, and must complete right
-    //    after; the game's own stream lands correctly in EWRAM
+    // 3.6 back-to-back: the ~cpu_ready mask on new requests must delay, never
+    //    drop, a legitimate second write presented while the first one's ready
+    //    is still up (gba_memory holds its strobe until taken, so it simply
+    //    waits a frame). Eight consecutive byte writes, then read them back
+    //    through the save channel.
+    for (k = 0; k < 8; k = k + 1)
+        cpu_write(26'h204_3000 + k, 8'hA0 + k);
+    for (k = 0; k < 8; k = k + 1)
+        sv_read(17'h03000 + k, 8'hA0 + k);
+
+    // 4. arbitration. (a) a CPU request and a save request that become pending
+    //    together: the CPU gets the slot first, the save request the next one.
+    //    (b) a save request queued behind a full-rate CPU write stream (a fresh
+    //    request presented every mclk, even in the period where ready is up,
+    //    which gba_memory itself never does) is served in a gap the stream
+    //    leaves -- a request that was already served and is merely still being
+    //    presented does not count as a new one -- and the stream's own writes land.
+    ack_before = sv_ack;
+    @(posedge mclk);
+    cpu_addr <= 26'h204_3000 >> 2; cpu_be <= 4'b0001; cpu_wdata <= {4{8'hA7}};
+    cpu_rd <= 0; cpu_wr <= 1;
+    sv_addr <= 17'h02200; sv_din <= 8'h3E; sv_we <= 1; sv_req <= ~sv_req;
+    t_cpu = 0; t_sv = 0;
+    begin : race
+        integer t; t = 0;
+        while ((t_cpu == 0 || t_sv == 0) && t < 400) begin
+            @(posedge clk); t = t + 1;
+            if (t_cpu == 0 && cpu_ready) t_cpu = $time;
+            if (t_sv == 0 && sv_ack != ack_before) t_sv = $time;
+        end
+    end
+    @(posedge clk); cpu_wr <= 0;
+    if (t_cpu == 0 || t_sv == 0 || t_sv <= t_cpu) begin
+        errs = errs + 1;
+        $display("FAIL: CPU request must be served before the save request (cpu %0t, save %0t)", t_cpu, t_sv);
+    end
+    repeat (8) @(posedge mclk);
+    sv_read(17'h03000, 8'hA7);
+    sv_read(17'h02200, 8'h3E);
+
     ack_before = sv_ack;
     cpu_stream = 1; saddr = 26'h200_0000; srun = 0;
     @(posedge mclk); sv_addr <= 17'h02000; sv_din <= 8'hD5; sv_we <= 1;
     sv_req <= ~sv_req;
-    repeat (80) @(posedge mclk);            // still queued, stream keeps running
-    if (sv_ack != ack_before) begin
-        errs = errs + 1;
-        $display("FAIL: save transaction overtook the CPU stream");
-    end
     while (cpu_stream) @(posedge mclk);     // until the stream finishes
     done_ok;
     cpu_read(26'h200_0000, 4'b1111);         // EWRAM: last thing the stream wrote

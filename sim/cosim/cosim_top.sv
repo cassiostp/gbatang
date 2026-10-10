@@ -57,8 +57,8 @@
 //   dumps genuinely contend with game traffic.
 //
 // OBSERVABILITY (all real unless noted)
-//   core_config/overlay: straight out of iosys (expect-config-bit reads the
-//   real register). rom_bytes: ROM/BIOS payload bytes consumed (the firmware
+//   core_config/video_config/overlay: straight out of iosys (expect-config-bit
+//   reads the real register). rom_bytes: ROM/BIOS payload bytes consumed (the firmware
 //   streams them; no loader parses them here). sdram_busy: controller init.
 //   OSD text / save RAM: read by the C++ bridge DIRECTLY out of the
 //   behavioral arrays (gowin_dpb_menu.mem, sdram_chip.mem, both
@@ -83,6 +83,7 @@ module cosim_top (
     input wire [15:0] cosim_core_id,
 
     output wire [31:0] core_config,
+    output wire [31:0] video_config,
     output wire overlay,
     output wire sdram_busy,
     output reg [31:0] rom_bytes,
@@ -208,6 +209,7 @@ iosys_bl616_cosim #(
     .sv_ack(sv_ack),
 
     .core_config(core_config),
+    .video_config(video_config),
     .uart_rx(uart_rx_iosys),
     .uart_tx(uart_tx_iosys)
 );

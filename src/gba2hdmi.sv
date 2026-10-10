@@ -26,6 +26,7 @@ module gba2hdmi (
     input [1:0] sl_darkness,    // core_config[19:18]: 25, 50, 75, 100 % dark
     input sl_thick,             // core_config[20]: thick lines
     input sl_out,               // core_config[21]: dark output rows instead of an integer scale
+    input [31:0] video_config,  // colour controls, CRT mask and LCD grid, see video_fx.v
 
     // output [7:0] led,
 
@@ -135,11 +136,14 @@ end
 // Video
 // Scale to 1080x720 for GBA video, 960x720 for overlay
 // See scanlines.v for the scanline geometry: with scanlines on, 4 output rows
-// per source line and 4 columns per pixel, 960x640 centred.
+// per source line and 4 columns per pixel, 960x640 centred. The LCD grid
+// (video_config[15]) uses that integer geometry too, even with the scanlines off.
 //
 wire [23:0] rgb;            // actual RGB output
-reg [23:0] rgb_pre;         // before the scanline darkening
+reg [23:0] rgb_pre;         // before video_fx
+reg pic_pre;                // rgb_pre is a pixel of the picture, not the border or the overlay
 reg dark_pre;
+reg col_last_1, col_last_2; // the last output column of a source pixel, delayed with the frame buffer read
 reg active                  /* xsynthesis syn_keep=1 */;
 reg [$clog2(WIDTH)-1:0] xx  /* xsynthesis syn_keep=1 */; // scaled-down pixel position
 reg [$clog2(HEIGHT)-1:0] yy /* xsynthesis syn_keep=1 */;
@@ -151,11 +155,13 @@ reg [9:0] cy_r;
 wire sl_geom, sl_show, sl_dark;
 wire [7:0] sl_yy;
 wire [1:0] sl_dk;
+wire row_last;              // sl_geom: this output row is the last of its source line
 sl_rows sl (
     .clk(clk_pixel), .cy(cy),
-    .cfg_on(scanlines), .cfg_dark(sl_darkness), .cfg_thick(sl_thick), .cfg_out(sl_out), .hide(overlay),
+    .cfg_on(scanlines), .cfg_dark(sl_darkness), .cfg_thick(sl_thick), .cfg_out(sl_out),
+    .cfg_grid(video_config[15]), .hide(overlay),
     .rows(3'd4), .dark_thin(3'd1), .dark_thick(3'd2), .lines(8'd160), .top(10'd40),
-    .geom(sl_geom), .pic_top(), .yy(sl_yy), .show(sl_show), .dark(sl_dark), .darkness(sl_dk)
+    .geom(sl_geom), .pic_top(), .yy(sl_yy), .show(sl_show), .dark(sl_dark), .last(row_last), .darkness(sl_dk)
 );
 reg [7:0] yy_s;             // source line to show
 always @(posedge clk_pixel) yy_s <= sl_geom ? sl_yy : yy;
@@ -172,8 +178,11 @@ wire [11:0] XSTOP  = (12'd1280 + XSIZE) >> 1;
 // address calculation
 // Assume the video occupies fully on the Y direction, we are upscaling the video by `720/height`.
 // xcnt and ycnt are fractional scaling counters.
-// The scanline darkening is a register stage after rgb_pre, so active starts one clock
-// earlier than the picture it frames.
+// video_fx follows rgb_pre with FX_LAT register stages. Its first stage is the one that sl_dim
+// used to be (active started at XSTART - 2 then), so active starts FX_LAT - 1 clocks earlier
+// than that, at XSTART - 1 - FX_LAT. The xx/xcnt counters, and so the frame buffer read and
+// the overlay lookup, run with it.
+localparam FX_LAT = 10;     // clocks from rgb_pre to rgb, see video_fx.v
 always @(posedge clk_pixel) begin
     reg active_t;
     reg [10:0] xcnt_next;
@@ -182,13 +191,18 @@ always @(posedge clk_pixel) begin
     ycnt_next = ycnt + (overlay ? 224 : height);
 
     active_t = 0;
-    if ({1'b0, cx} == XSTART - 12'd2) begin
+    if ({1'b0, cx} == XSTART - 12'd1 - FX_LAT) begin
         active_t = 1;
         active <= 1;
-    end else if ({1'b0, cx} == XSTOP - 12'd2) begin
+    end else if ({1'b0, cx} == XSTOP - 12'd1 - FX_LAT) begin
         active_t = 0;
         active <= 0;
     end
+
+    // the last output column of each source pixel: with the integer geometry XSIZE is 960,
+    // four columns per pixel. Delayed with the frame buffer read below, so it lands on rgb_pre.
+    col_last_1 <= (active_t | active) & (xcnt_next >= XSIZE);
+    col_last_2 <= col_last_1;
 
     if (active_t | active) begin        // increment xx
         xcnt <= xcnt_next;
@@ -230,9 +244,17 @@ always @(posedge clk_pixel) begin
                     mem_portB_rdata[0            +: COLOR_BITS], {(8-COLOR_BITS){1'b0}}};    // RGB6 to RGB8
     end else
         rgb_pre <= 24'h303030;
+    pic_pre <= active & sl_show & ~overlay;
     dark_pre <= active & sl_show & ~overlay & sl_dark;
 end
-sl_dim dim (.clk(clk_pixel), .rgb_in(rgb_pre), .dark(dark_pre), .darkness(sl_dk), .rgb_out(rgb));
+
+// colour controls, the scanline darkening, the LCD grid and the CRT mask
+video_fx fx (
+    .clk(clk_pixel), .cx(cx), .cy(cy), .video_config(video_config),
+    .rgb_in(rgb_pre), .pic_in(pic_pre), .dark_in(dark_pre), .darkness(sl_dk),
+    .col_last_in(col_last_2), .row_last_in(row_last),
+    .rgb_out(rgb)
+);
 
 // HDMI output.
 logic[2:0] tmds;

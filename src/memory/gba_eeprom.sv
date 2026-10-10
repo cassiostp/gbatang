@@ -57,10 +57,23 @@ assign ready = valid;   // immediately ready
 
 reg [13:0] addr;        // 6 or 10 bit block address of 64-bit blocks
 reg  [5:0] off;         // in block bit address
-reg init_write;
-wire [19:0] fulladdr = {addr, off};
+// Serial bits arrive MSB first while `off` counts up, so bit index off[2:0]
+// would store every byte bit-mirrored (byte-reversed) as seen from port B, the
+// save channel's view. Complementing off[2:0] puts the physical byte in natural
+// order for port B/.sav; the serial side applies the same mirror on read and
+// write, so games stay self consistent.
+wire [19:0] fulladdr = {addr, off[5:3], ~off[2:0]};
 
-wire mem_write = state == WR_DATA ? write : init_write;
+// Write only during a serial write transaction or the power-on INIT fill.
+// The old form (state==WR_DATA ? write : init_write) was broken two ways: the
+// INIT fill skipped address bit 0 (init_write only becomes 1 after the first
+// cycle, and the address increments every cycle), and when INIT ended
+// {addr,off} had wrapped back to 0 with init_write stuck at 1 until the game
+// next pulled cs, so wrea stayed asserted at address 0 forever -- pinning
+// byte 0 bit 0 and burning a 1 into every bit the game reads back. Asserting
+// the write for the whole INIT state fixes the fill (each address is still
+// written exactly once) and removes the stuck write; reads never write.
+wire mem_write = state == WR_DATA ? write : (state == INIT);
 wire mem_din = state == WR_DATA ? din : 1'b1;
 reg mem_dout;
 reg out1;               // always output 1 when IDLE 
@@ -128,7 +141,6 @@ always @(posedge clk) begin
 
         if (state == INIT) begin
             {addr,off} <= {addr,off} + 1;
-            init_write <= 1;
             if (fulladdr == 64*1024-1) state <= IDLE;
         end
 
@@ -136,7 +148,6 @@ always @(posedge clk) begin
             case (state) 
             
             IDLE: begin
-                init_write <= 0;
                 out1 <= 1;      // when in IDLE, always output 1 (for 'ready' signal after EEPROM write)
                 if (write & din) begin
                     state <= BIT2;

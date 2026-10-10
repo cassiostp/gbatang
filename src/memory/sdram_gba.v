@@ -368,7 +368,11 @@ always @(posedge clk) begin
             ////////////////////////////////////////
             if (cycle[3] & ~flash_cmd_en) begin
                 reg new_cpu, new_rv;
-                new_cpu = (cpu_rd | cpu_wr) & ~cpu_ready;       // not the repeat of a served request
+                // Not the repeat of a served request. Never costs a fresh one a slot: cpu_ready is
+                // only 1 in the slot right after a one-halfword accept, where gba_memory shows
+                // nothing but that request's held copy (a fresh request is only presented once
+                // it has seen the ready), and this slot clears it. tb_gba_memstream checks it.
+                new_cpu = (cpu_rd | cpu_wr) & ~cpu_ready;
                 new_rv = rv_req ^ rv_req_ack;
                 cpu_ready <= 0;
                 if (port[0] != 0 & ~addr_latch[0][1] & ds_latch[0][3:2] != 0) begin // continue to next halfword

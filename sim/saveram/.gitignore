@@ -3,3 +3,4 @@ iosys_sim.v
 *.vcd
 sdram_gba_sim.v
 gba_bios_cultofgba.hex
+sdram_gba_dbg*.v

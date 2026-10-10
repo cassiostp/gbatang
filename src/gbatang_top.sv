@@ -126,6 +126,7 @@ wire cartram_dirty_clear;
 wire cartram_dirty;
 
 wire [31:0] core_config;
+wire [31:0] video_config;     // from iosys
 wire pause = core_config[17] & gbaon;     // menu pause, only active while the game runs
 
 /* verilator public_on */
@@ -580,6 +581,7 @@ gba2hdmi video (            // BRAM-based framebuffer
 `endif
     .overlay_x(overlay_x), .overlay_y(overlay_y), .overlay_color(overlay_color),
     .scanlines(core_config[16]), .sl_darkness(core_config[19:18]), .sl_thick(core_config[20]), .sl_out(core_config[21]),
+    .video_config(video_config),
 	.tmds_clk_n(tmds_clk_n), .tmds_clk_p(tmds_clk_p), .tmds_d_n(tmds_d_n),
 	.tmds_d_p(tmds_d_p)
 );
@@ -599,7 +601,7 @@ iosys_bl616 #(.CORE_ID(3), .COLOR_LOGO(15'b01111_01100_10101), .FREQ(16_650_000)
     .resetn(resetn),
 
     .overlay(overlay), .overlay_x(overlay_x), .overlay_y(overlay_y), .overlay_color(overlay_color),
-    .core_config(core_config),
+    .core_config(core_config), .video_config(video_config),
     .joy1(joy_btns | joy_usb1 | joy_usb2), .joy2(12'b0),
     .hid1(hid1), .hid2(hid2),
 

@@ -56,6 +56,7 @@ if {$dev eq "console60k" || $dev eq "mega60k"} {
    add_file -type verilog "src/fb.v"
    add_file -type verilog "src/gba2hdmi.sv"
    add_file -type verilog "src/scanlines.v"
+   add_file -type verilog "src/video_fx.v"
  } else {
     error "Unknown device $dev"
 }

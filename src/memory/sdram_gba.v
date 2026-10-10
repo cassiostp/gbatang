@@ -245,9 +245,24 @@ always @(posedge clk) begin
         reg is_flash;
         is_flash = config_backup_type == 3'd1 | config_backup_type == 3'd2;
         hi = 0;
-        // request goes to flash controller
+        // A new game can arrive with any bank/mode left over from the last flash
+        // game: the loader only changes config_backup_type, nothing resets this
+        // controller. Park the chip while no flash game runs so the next flash
+        // game starts at bank 0 in normal mode (and a stale ID-mode cannot hide
+        // the next game's ID probe, which only answers at 26'h204_0000).
+        if (!is_flash) begin
+            f_bank <= 0;
+            f_mode <= MODE_NORMAL;
+            flash <= FLASH_IDLE;
+        end
+        // request goes to flash controller. cpu_ready masks the repeat of a request that
+        // was already served: gba_memory holds its read/write strobe for a second mclk
+        // period (the buffered copy in REQ1_WAIT), so a one-halfword access whose
+        // ready went up at the first period's slot would otherwise run its flash
+        // command twice (AA,AA breaks the unlock sequence) and, below, run again as a
+        // new CPU request that takes the slot from refresh and the save client.
         flash_cmd_en = 0;
-        if (is_flash & (cpu_wr & cpu_addr[25:16] == 10'h204 | flash == FLASH_ERASEALL | flash == FLASH_ERASESECT))
+        if (is_flash & (cpu_wr & ~cpu_ready & cpu_addr[25:16] == 10'h204 | flash == FLASH_ERASEALL | flash == FLASH_ERASESECT))
             flash_cmd_en = 1;
         if (f_mode == MODE_WRITE) 
             flash_cmd_en = 0;
@@ -353,7 +368,11 @@ always @(posedge clk) begin
             ////////////////////////////////////////
             if (cycle[3] & ~flash_cmd_en) begin
                 reg new_cpu, new_rv;
-                new_cpu = cpu_rd | cpu_wr;
+                // Not the repeat of a served request. Never costs a fresh one a slot: cpu_ready is
+                // only 1 in the slot right after a one-halfword accept, where gba_memory shows
+                // nothing but that request's held copy (a fresh request is only presented once
+                // it has seen the ready), and this slot clears it. tb_gba_memstream checks it.
+                new_cpu = (cpu_rd | cpu_wr) & ~cpu_ready;
                 new_rv = rv_req ^ rv_req_ack;
                 cpu_ready <= 0;
                 if (port[0] != 0 & ~addr_latch[0][1] & ds_latch[0][3:2] != 0) begin // continue to next halfword
@@ -463,7 +482,6 @@ always @(posedge clk) begin
                         f_din = cpu_wdata[7:0];
                     end
                 endcase
-                $display("flash write: %h %h %h", f_addr, cpu_be, f_din);
 
                 case (flash)
                 FLASH_IDLE: begin
@@ -475,7 +493,6 @@ always @(posedge clk) begin
                     if (f_addr[15:0] == 0 & f_mode == MODE_BANK) begin
                         f_bank <= f_din[0];
                         f_mode <= MODE_NORMAL;
-                        $display("bank switch: %h", f_bank);
                     end
                 end
 

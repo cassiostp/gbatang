@@ -12,7 +12,7 @@
 
 module tb_gba_fx;
 
-    localparam FX_LAT = 10;
+    localparam FX_LAT = 11;
 
     reg clk = 0, clk27 = 0;
     always #10 clk = ~clk;                      // 50 MHz

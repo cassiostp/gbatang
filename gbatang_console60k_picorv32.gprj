@@ -15,6 +15,7 @@
         <File path="src/cpu/gba_cpu_thumbdecoder.v" type="file.verilog" enable="1"/>
         <File path="src/cpu/gba_interrupts.v" type="file.verilog" enable="1"/>
         <File path="src/gba2hdmi.sv" type="file.verilog" enable="1"/>
+        <File path="src/scanlines.v" type="file.verilog" enable="1"/>
         <File path="src/gbatang_top.sv" type="file.verilog" enable="1"/>
         <File path="src/gpu/gba_drawer_merge.v" type="file.verilog" enable="1"/>
         <File path="src/gpu/gba_drawer_mode0.v" type="file.verilog" enable="1"/>

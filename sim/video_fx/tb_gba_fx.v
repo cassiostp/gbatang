@@ -51,7 +51,7 @@ module tb_gba_fx;
     initial begin
         #1;
         h = 32'h7654321;
-        for (i = 0; i < 240 * 160; i = i + 1) begin
+        for (i = 0; i < 65536; i = i + 1) begin
             h = h * 1664525 + 1013904223;
             dut.u_fb.m[i] = h[23:6];
         end
@@ -63,7 +63,10 @@ module tb_gba_fx;
     integer logging = 0, checking = 0, expect_no_sldark = 0, nlog = 0, nbad_pic = 0, nbad_grid = 0, k;
     integer fd;
     reg     in_row;
-    // the integer geometry: clocks between source pixel columns, and the column flag history
+    // the integer geometry: clocks between source pixel columns, and the column flag history.
+    // The counters run SM_LAT early for the smoothing; xx_ov/active_d are delayed back,
+    // so the flag still trails the delayed xx step by the 2 buffer/rgb_pre stages.
+    localparam SM_LAT = 10;
     integer cyc = 0;
     reg [7:0] xx_r = 0, xx_d1 = 0, xx_d2 = 0;
     reg col_now;
@@ -85,11 +88,11 @@ module tb_gba_fx;
                 $display("scanline darkening with grid on, scanlines off at cx=%0d cy=%0d", dut.cx, dut.cy);
         end
         // the integer geometry: each source pixel is 4 output columns, the column flag is
-        // the last of them (the flag trails the xx step by the 2 buffer/rgb_pre stages)
+        // the last of them (the flag trails the delayed xx step by the 2 buffer/rgb_pre stages)
         col_now = dut.fx.col_last_in;
-        if (checking && dut.sl_geom && !ov && !$isunknown({col_now, xx_d1, xx_d2}) && dut.active) begin
+        if (checking && dut.sl_geom && !ov && !$isunknown({col_now, xx_d1, xx_d2}) && dut.active_d) begin
             cyc = cyc + 1;
-            if (!$isunknown(dut.xx) && !$isunknown(xx_r) && dut.xx !== xx_r) begin
+            if (!$isunknown(dut.xx_ov) && !$isunknown(xx_r) && dut.xx_ov !== xx_r) begin
                 if (cyc !== 4) begin
                     nbad_grid = nbad_grid + 1;
                     if (nbad_grid <= 5)
@@ -105,7 +108,7 @@ module tb_gba_fx;
         end else begin
             cyc = 0;
         end
-        xx_d2 = xx_d1; xx_d1 = xx_r; xx_r = dut.xx;
+        xx_d2 = xx_d1; xx_d1 = xx_r; xx_r = dut.xx_ov;
         in_row = (dut.cy % 100 < 4) && dut.cy < 10'd720 && dut.cy >= 10'd40;
         if (logging && in_row && dut.cx < 11'd1280) begin
             $fwrite(fd, "%h %0d %0d %0d %0d %0d %0d %0d %h %h\n", vcfg, dut.cx, dut.cy,

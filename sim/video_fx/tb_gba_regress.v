@@ -58,7 +58,7 @@ module tb_gba_regress;
     initial begin
         #1;
         h = 32'h1234567;
-        for (i = 0; i < 240 * 160; i = i + 1) begin
+        for (i = 0; i < 65536; i = i + 1) begin
             h = h * 1664525 + 1013904223;
             dut.u_fb.m[i]  = h[23:6];
             base.u_fb.m[i] = h[23:6];

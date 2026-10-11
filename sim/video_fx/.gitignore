@@ -1,6 +1,8 @@
 *.out
 vec_*.hex
 gba_fx.log
+gba_smooth.log
+gba_src.hex
 background.txt
 build/
 __pycache__/

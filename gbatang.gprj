@@ -56,6 +56,7 @@
         <File path="src/memory/gba_dma_module.sv" type="file.verilog" enable="1"/>
         <File path="src/memory/gba_eeprom.sv" type="file.verilog" enable="1"/>
         <File path="src/memory/gba_flash_sram.sv" type="file.verilog" enable="1"/>
+        <File path="src/memory/gba_gpio_rtc.v" type="file.verilog" enable="1"/>
         <File path="src/memory/gba_memory.sv" type="file.verilog" enable="1"/>
         <File path="src/memory/mem_eeprom.v" type="file.verilog" enable="1"/>
         <File path="src/memory/mem_iwram.v" type="file.verilog" enable="1"/>

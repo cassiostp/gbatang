@@ -210,6 +210,11 @@ iosys_bl616_cosim #(
 
     .core_config(core_config),
     .video_config(video_config),
+    .time_unix(),
+    .time_bcd(),
+    .time_solar(),
+    .time_flags(),
+    .time_strobe(),
     .uart_rx(uart_rx_iosys),
     .uart_tx(uart_tx_iosys)
 );

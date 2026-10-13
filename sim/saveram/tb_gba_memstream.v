@@ -123,6 +123,8 @@ gba_memory mem (
     .eeprom_rdata(), .eeprom_wdata(8'h0), .eeprom_written(),
     .loading(loading), .loader_data(loader_data), .loader_valid(loader_valid),
     .gbaon(), .config_backup_type(config_backup_type),
+    .config_gpio(), .gpio_cs(), .gpio_valid(), .gpio_write(), .gpio_regsel(),
+    .gpio_wdata(), .gpio_rdata(16'h0), .gpio_readable(1'b0),
     .cartram_dirty(), .cartram_dirty_clear(1'b0),
     .gb_bus_din(), .gb_bus_dout(32'h0), .gb_bus_adr(), .gb_bus_rnw(), .gb_bus_ena(),
     .gb_bus_done(), .gb_bus_acc(), .gb_bus_be(), .gb_bus_rst(),

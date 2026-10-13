@@ -119,10 +119,23 @@ module gba_memory (
 
     // Loader interface
     input       [2:0]   loading      /* xsynthesis syn_keep=1 */,     // 0: off, 1: ROM, 2: Cart RAM, 3: Config, 4: BIOS
-    input       [7:0]   loader_data  /* xsynthesis syn_keep=1 */, 
+    input       [7:0]   loader_data  /* xsynthesis syn_keep=1 */,
     input               loader_valid /* xsynthesis syn_keep=1 */,
     output reg          gbaon,          // GBA is turned on after loading goes from none-zero to zero
     output reg  [2:0]   config_backup_type,   // 0: no backup, 1: 512Kbit, 2: 1Mbit, 3: SRAM, 4: EEPROM
+    output reg  [1:0]   config_gpio,    // loader byte 1: bit0 cart RTC, bit1 solar sensor
+
+    // Cartridge GPIO bus (0x080000C4/C6/C8 when config_gpio != 0). Single
+    // cycle like other BRAM: cs+valid request, rdata registered (valid the
+    // cycle after a read). Reads fall through to ROM unless the block says
+    // readable (control register bit0). gbatang_top owns the device.
+    output              gpio_cs,
+    output              gpio_valid,
+    output              gpio_write,
+    output      [1:0]   gpio_regsel,    // 0 data (C4), 1 direction (C6), 2 control (C8)
+    output      [15:0]  gpio_wdata,
+    input       [15:0]  gpio_rdata,
+    input               gpio_readable,
 
     output reg          cartram_dirty,  // set to 1 whenever cartram is written to
     input               cartram_dirty_clear,    // clears cartram_dirty
@@ -237,11 +250,44 @@ localparam  PORT_ROM  = 2'd1;
 localparam  PORT_RAM  = 2'd2;
 localparam  PORT_DMA  = 2'd3;
 
+// Cartridge GPIO window (0x080000C4 data / C6 direction / C8 control, plus
+// mirrors in ROM banks 09-0C; GBATEK). Games use 16-bit LDRH/STRH, so only a
+// halfword access to the exact register hits: anything else (8-bit, 32-bit,
+// instruction fetch, DMA) keeps the previous behaviour (ROM read / dropped
+// write). Reads go to the device only in read/write mode (control bit0);
+// otherwise they fall through to ROM exactly as today.
+wire gpio_enable = |config_gpio;
+function gpio_bank(input [3:0] region);
+    gpio_bank = region == 4'h8 || region == 4'h9 || region == 4'hA ||
+                region == 4'hB || region == 4'hC;
+endfunction
+function [1:0] gpio_which(input [27:0] addr);
+    // 0 data (C4), 1 direction (C6), 2 control (C8); C4/C6 share a word
+    gpio_which = addr[23:2] == 22'h000031 ? (addr[1] ? 2'd1 : 2'd0) : 2'd2;
+endfunction
+function gpio_at(input [27:0] addr, input [3:0] be);
+    gpio_at = gpio_enable & gpio_bank(addr[27:24]) &
+              (addr[23:2] == 22'h000031 ||
+               (addr[23:2] == 22'h000032 && !addr[1])) &
+              (be == (addr[1] ? 4'b1100 : 4'b0011));
+endfunction
+// CPU data access this cycle (ram path; used to steer MAIN/REQ2/cpu_en)
+wire gpio_single = ram_cen & gpio_at(ram_addr, ram_be) &
+                   (ram_wen | gpio_readable);
+// The access actually on the BRAM bus (also covers a GPIO second request)
+wire gpio_match = gpio_at(bram_addr, bram_be);
+assign gpio_cs = gpio_match & (bram_rd | bram_wr);
+assign gpio_valid = gpio_match & (bram_rd | bram_wr);
+assign gpio_write = gpio_match & bram_wr;
+assign gpio_regsel = gpio_which(bram_addr);
+assign gpio_wdata = bram_addr[1] ? bram_wdata[31:16] : bram_wdata[15:0];
+reg gpio_sel_r;                 // the last BRAM access was a GPIO read
+
 // BRAM memory requests
 always @* begin
     bram_addr = 32'hbaaddeed;
     bram_wdata = 32'hdeadbeef;
-    bram_rd = 0; 
+    bram_rd = 0;
     bram_wr = 0;
     bram_be = 4'b0;
     bram_port = PORT_NONE;
@@ -260,11 +306,19 @@ always @* begin
         end else if (rom_en) begin
             if (issingle(rom_addr[27:24])) begin
                 bram_addr = rom_addr;
-                bram_rd = 1; 
+                bram_rd = 1;
                 bram_wr = 0;
                 bram_be = 4'b1111;
-                bram_port = PORT_ROM;    
+                bram_port = PORT_ROM;
             end
+        end else if (ram_cen & gpio_single) begin
+            // cartridge GPIO registers: single cycle like other BRAM
+            bram_addr = ram_addr;
+            bram_rd = ~ram_wen;
+            bram_wr = ram_wen;
+            bram_wdata = ram_wdata;
+            bram_be = ram_be;
+            bram_port = PORT_RAM;
         end else if (ram_cen & issingle(ram_addr[27:24])) begin
             bram_addr = ram_addr;
             bram_rd = ~ram_wen;
@@ -299,7 +353,7 @@ always @* begin
                     sdram_be = 4'b1111;                
                 sdram_port = PORT_ROM;
             end
-        end else if (ram_cen & ~issingle(ram_addr[27:24])) begin
+        end else if (ram_cen & ~issingle(ram_addr[27:24]) & ~gpio_single) begin
             sdram_rd = ~ram_wen;
             sdram_wr = ram_wen;
             if (isreadonly(ram_addr[27:24])) begin
@@ -370,7 +424,7 @@ always @(posedge clk) begin
                     double_req <= 1;
 
                     // issue request 2
-                    if (issingle(ram_addr[27:24])) begin
+                    if (issingle(ram_addr[27:24]) | gpio_single) begin
                         // req2.single
                         state <= REQ2_BRAM;
                         bram_addr_buf <= ram_addr;
@@ -472,7 +526,7 @@ always @* begin
                 cpu_en = sdram_ready; 
         3'b001:                 // ram only
             if (state == MAIN)
-                cpu_en = issingle(ram_addr[27:24]);
+                cpu_en = issingle(ram_addr[27:24]) | gpio_single;
             else
                 cpu_en = sdram_ready; 
         default:                // both rom and ram
@@ -499,7 +553,10 @@ wire [31:0] rdata_oamram;
 wire        rdata_eeprom;
 always @* begin
     // combine BRAM output
-    casez (bram_addr_r[27:24])
+    if (gpio_sel_r & gpio_readable)
+        bram_rdata = bram_addr_r[1] ? {gpio_rdata, 16'h0000}
+                                    : {16'h0000, gpio_rdata};
+    else casez (bram_addr_r[27:24])
     4'h0:    bram_rdata = rdata_bios;
     4'h3:    bram_rdata = rdata_iwram;
     4'h4:    bram_rdata = gb_bus_dout;
@@ -514,6 +571,7 @@ always @(posedge clk) begin
     bram_port_r <= bram_port;
     bram_rd_r <= bram_rd;
     bram_addr_r <= bram_addr;
+    gpio_sel_r <= bram_rd & gpio_match;
     rom_en_r <= rom_en;
     ram_cen_r <= ram_cen;
 end
@@ -555,6 +613,7 @@ always @(posedge clk) begin
         loader_addr <= 0;
         loader_buf_front <= 0;
         loader_buf_back <= 0;
+        config_gpio <= 0;
         gbaon <= 0;
     end else begin
         case (loading)
@@ -591,8 +650,14 @@ always @(posedge clk) begin
                 // config_flash_backup <= (loader_data == BACKUP_FLASH512K | loader_data == BACKUP_FLASH1M);
                 $display("backup type=%d", loader_data);
                 // auto-detection works fine, so we don't need this
-                // if (loader_data == 8'd3)        
+                // if (loader_data == 8'd3)
                 //     config_eeprom_type <= 0;            // 4 is 64kbit eeprom (default), 3 is 4kbit eeprom
+            end else if (loader_addr[2:0] == 1) begin
+                // firmware loader byte 1: cartridge GPIO devices behind
+                // 0x080000C4 (bit0 RTC, bit1 solar). Byte 2 is the solar %
+                // for the time frame; the RTC block takes it from there.
+                config_gpio <= loader_data[1:0];
+                $display("gpio flags=%d", loader_data[1:0]);
             end
         end
 
@@ -619,6 +684,7 @@ always @(posedge clk) begin
             if (loading == 1) begin                     // reset backup settings on loading start
                 config_backup_type <= BACKUP_NONE;
                 config_eeprom_type <= 1;
+                config_gpio <= 0;
                 // config_flash_backup <= 0;
             end
         end

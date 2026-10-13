@@ -335,6 +335,10 @@ wire [16:0] dma_eepromcount;
 // port (blocks 0..15 = the 8KB chip), any other backup type to sdram_gba's
 // save client, where sv_addr[16] is the flash bank. The two targets never
 // overlap because the game has exactly one backup chip.
+// On RTC carts (Pokémon, Boktai) one extra 512-byte block follows the save
+// RAM in the same .sav file (MiSTer-compatible "RT" sector): it rides the
+// channel as blocks [save_blocks] and lands in the GPIO RTC block below,
+// never in backup RAM.
 wire [17:0] sv_addr;
 wire [7:0]  sv_din, sv_q;
 wire        sv_we, sv_req, sv_ack, sv_core_we;
@@ -342,10 +346,23 @@ wire [16:0] sdram_sv_addr;
 wire [7:0]  sdram_sv_q;
 wire        sdram_sv_ack;
 wire        eep_save = config_backup_type == 3'd4;
+wire [1:0]  config_gpio;            // loader byte 1: bit0 RTC, bit1 solar
+
+reg [8:0] save_blocks;              // backup RAM size in 512-byte blocks
+always @* case (config_backup_type)
+3'd4: save_blocks = 9'd16;          // EEPROM 8KB
+3'd3: save_blocks = 9'd64;          // SRAM 32KB
+3'd1: save_blocks = 9'd128;         // Flash 512K
+3'd2: save_blocks = 9'd256;         // Flash 1M
+default: save_blocks = 9'd64;       // no battery: the firmware still wipes 64
+endcase
+wire [8:0] sv_block = sv_addr[17:9];
+wire sv_rtc = sv_block >= save_blocks;
 
 assign sdram_sv_addr = sv_addr[16:0];
-assign sv_q = eep_save ? eeprom_rdata : sdram_sv_q;
-assign sv_ack = eep_save ? sv_req : sdram_sv_ack;   // the EEPROM port answers in one clock
+assign sv_q = sv_rtc ? rtc_sv_q : eep_save ? eeprom_rdata : sdram_sv_q;
+// the RTC sector and the EEPROM port answer in one clock (comb/registered)
+assign sv_ack = sv_rtc ? sv_req : eep_save ? sv_req : sdram_sv_ack;
 
 // EEPROM accesses (port B of the chip; the save channel is its only client in
 // the BL616 build). Reads are just addr -> doutb. Writes strobe once per
@@ -353,16 +370,54 @@ assign sv_ack = eep_save ? sv_req : sdram_sv_ack;   // the EEPROM port answers i
 // must not keep hammering a byte while the game's serial side is mid-write.
 reg sv_req_d = 0;
 always @(posedge clk16) sv_req_d <= sv_req;
-assign eeprom_wr    = (sv_req ^ sv_req_d) & sv_we & eep_save;
+assign eeprom_wr    = (sv_req ^ sv_req_d) & sv_we & eep_save & ~sv_rtc;
 assign eeprom_addr  = sv_addr[12:0];
 assign eeprom_wdata = sv_din;
 
 // Dirty: backup_written is a pulse inside the SDRAM clock's mclk frame, so it
 // is one mclk high and a two-flop catch in clk16 never misses it (the same
 // sampling gba_memory's cartram_dirty relies on). eeprom_written is clk16.
+// A game RTC write dirties the save too, so its clock reaches the card even
+// when save RAM itself is untouched (control writes also pulse: the dump
+// then compares equal and skips the card write).
 reg [2:0] bw_s = 3'b000;
 always @(posedge clk16) bw_s <= {bw_s[1:0], backup_written};
-assign sv_core_we = (bw_s[1] & ~bw_s[2]) | (eeprom_written & eep_save);
+assign sv_core_we = (bw_s[1] & ~bw_s[2]) | (eeprom_written & eep_save) |
+                    (rtc_written & |config_gpio);
+
+// ---- cartridge GPIO + S-3511A RTC + solar sensor (Boktai/Pokémon) ---------
+// The firmware sends which devices the cart has (loader byte 1) and the wall
+// time (frame 0x14, via iosys). Until the game writes the RTC or a saved RTC
+// sector is restored, frames re-seed the clock, so a fresh game reads the
+// console's Options date/time.
+wire        gpio_cs, gpio_valid, gpio_write, gpio_readable, rtc_written;
+wire [1:0]  gpio_regsel;
+wire [15:0] gpio_wdata, gpio_rdata;
+wire [31:0] time_unix;
+wire [55:0] time_bcd;
+wire [7:0]  time_solar;
+wire        time_strobe;
+`ifdef VERILATOR
+// No iosys under Verilator: the RTC idles (a fresh game reads defaults).
+assign time_unix = 32'h0;
+assign time_bcd = 56'h0;
+assign time_solar = 8'd0;
+assign time_strobe = 1'b0;
+`endif
+wire [7:0]  rtc_sv_q;
+wire        rtc_sv_we = (sv_req ^ sv_req_d) & sv_we & sv_rtc;
+gba_gpio_rtc #(.CLK_HZ(16650000)) gpio_rtc (
+    .clk(clk16), .rst(loading == 3'd1),
+    .rtc_present(config_gpio[0]), .solar_present(config_gpio[1]),
+    .cs(gpio_cs), .valid(gpio_valid), .write(gpio_write),
+    .regsel(gpio_regsel), .wdata(gpio_wdata),
+    .rdata(gpio_rdata), .readable(gpio_readable),
+    .time_unix(time_unix), .time_bcd(time_bcd), .time_strobe(time_strobe),
+    .solar_pct(time_solar),
+    .sv_addr(sv_addr[8:0]), .sv_din(sv_din), .sv_we(rtc_sv_we),
+    .sv_q(rtc_sv_q),
+    .rtc_written(rtc_written)
+);
 
 gba_memory mem (
     .clk(clk16), .resetn(resetn), .ce(1'b1),
@@ -389,6 +444,10 @@ gba_memory mem (
     // Loader interface
     .loading(loading), .loader_data(loader_do), .loader_valid(loader_do_valid),
     .gbaon(gbaon), .config_backup_type(config_backup_type),
+    .config_gpio(config_gpio),
+    .gpio_cs(gpio_cs), .gpio_valid(gpio_valid), .gpio_write(gpio_write),
+    .gpio_regsel(gpio_regsel), .gpio_wdata(gpio_wdata),
+    .gpio_rdata(gpio_rdata), .gpio_readable(gpio_readable),
     .cartram_dirty(cartram_dirty), .cartram_dirty_clear(cartram_dirty_clear),
 
     // Interface to GPU to access special memory like VRAM, OAMRAM, PALETTE
@@ -426,7 +485,7 @@ sdram_gba sdram (
     .rv_we(rv_mem_we),
 
     .sv_addr(sdram_sv_addr), .sv_din(sv_din), .sv_we(sv_we),
-    .sv_req(sv_req & ~eep_save), .sv_ack(sdram_sv_ack), .sv_dout(sdram_sv_q),
+    .sv_req(sv_req & ~eep_save & ~sv_rtc), .sv_ack(sdram_sv_ack), .sv_dout(sdram_sv_q),
 
     .busy(sdram_busy)
 );
@@ -602,6 +661,8 @@ iosys_bl616 #(.CORE_ID(3), .COLOR_LOGO(15'b01111_01100_10101), .FREQ(16_650_000)
 
     .overlay(overlay), .overlay_x(overlay_x), .overlay_y(overlay_y), .overlay_color(overlay_color),
     .core_config(core_config), .video_config(video_config),
+    .time_unix(time_unix), .time_bcd(time_bcd),
+    .time_solar(time_solar), .time_flags(), .time_strobe(time_strobe),
     .joy1(joy_btns | joy_usb1 | joy_usb2), .joy2(12'b0),
     .hid1(hid1), .hid2(hid2),
 

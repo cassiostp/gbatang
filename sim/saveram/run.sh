@@ -49,13 +49,13 @@ cp $RTL/memory/gba_bios_cultofgba.hex .
 # tb_gba_saves copies gbatang_top.sv's battery-save glue; fail if the top moved on.
 for l in "wire        eep_save = config_backup_type == 3'd4;" \
          "assign sdram_sv_addr = sv_addr[16:0];" \
-         "assign sv_q = eep_save ? eeprom_rdata : sdram_sv_q;" \
-         "assign sv_ack = eep_save ? sv_req : sdram_sv_ack;" \
-         "assign eeprom_wr    = (sv_req ^ sv_req_d) & sv_we & eep_save;" \
+         "assign sv_q = sv_rtc ? rtc_sv_q : eep_save ? eeprom_rdata : sdram_sv_q;" \
+         "assign sv_ack = sv_rtc ? sv_req : eep_save ? sv_req : sdram_sv_ack;" \
+         "assign eeprom_wr    = (sv_req ^ sv_req_d) & sv_we & eep_save & ~sv_rtc;" \
          "assign eeprom_addr  = sv_addr[12:0];" \
          "assign eeprom_wdata = sv_din;" \
-         "assign sv_core_we = (bw_s[1] & ~bw_s[2]) | (eeprom_written & eep_save);" \
-         ".sv_req(sv_req & ~eep_save), .sv_ack(sdram_sv_ack), .sv_dout(sdram_sv_q)"; do
+         "assign sv_core_we = (bw_s[1] & ~bw_s[2]) | (eeprom_written & eep_save) |" \
+         ".sv_req(sv_req & ~eep_save & ~sv_rtc), .sv_ack(sdram_sv_ack), .sv_dout(sdram_sv_q)"; do
     grep -qF -- "$l" $RTL/gbatang_top.sv || \
         { echo "run.sh: gbatang_top.sv no longer has: $l (update tb_gba_saves.v's glue copy)" >&2; exit 1; }
 done

@@ -104,6 +104,8 @@ gba_memory mem (
     .eeprom_written(eeprom_written),
     .loading(loading), .loader_data(loader_do), .loader_valid(loader_do_valid),
     .gbaon(gbaon), .config_backup_type(config_backup_type),
+    .config_gpio(), .gpio_cs(), .gpio_valid(), .gpio_write(), .gpio_regsel(),
+    .gpio_wdata(), .gpio_rdata(16'h0), .gpio_readable(1'b0),
     .cartram_dirty(), .cartram_dirty_clear(1'b0),
     .gb_bus_din(), .gb_bus_dout(32'h0), .gb_bus_adr(), .gb_bus_rnw(), .gb_bus_ena(),
     .gb_bus_done(), .gb_bus_acc(), .gb_bus_be(), .gb_bus_rst(),
@@ -163,13 +165,17 @@ iosys_bl616 #(.FREQ(FREQ), .CORE_ID(3), .SAVE_IF(1), .SAVE_AW(18), .SAVE_SYNC(0)
 );
 
 // ---- gbatang_top.sv battery-save glue (copy; run.sh checks the originals) ----
+// No RTC cart here (config_gpio stays 0), so the RTC sector never addresses:
+// sv_rtc is tied 0 and the muxes behave exactly as the top's backup paths.
 wire eep_save = config_backup_type == 3'd4;
+wire sv_rtc = 1'b0;
+wire [7:0] rtc_sv_q = 8'h0;
 assign sdram_sv_addr = sv_addr[16:0];
-assign sv_q = eep_save ? eeprom_rdata : sdram_sv_q;
-assign sv_ack = eep_save ? sv_req : sdram_sv_ack;
+assign sv_q = sv_rtc ? rtc_sv_q : eep_save ? eeprom_rdata : sdram_sv_q;
+assign sv_ack = sv_rtc ? sv_req : eep_save ? sv_req : sdram_sv_ack;
 reg sv_req_d = 0;
 always @(posedge mclk) sv_req_d <= sv_req;
-assign eeprom_wr_w  = (sv_req ^ sv_req_d) & sv_we & eep_save;
+assign eeprom_wr_w  = (sv_req ^ sv_req_d) & sv_we & eep_save & ~sv_rtc;
 assign eeprom_addr  = sv_addr[12:0];
 assign eeprom_wdata = sv_din;
 reg [2:0] bw_s = 3'b000;

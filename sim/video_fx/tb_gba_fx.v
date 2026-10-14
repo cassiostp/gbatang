@@ -66,7 +66,7 @@ module tb_gba_fx;
     // the integer geometry: clocks between source pixel columns, and the column flag history.
     // The counters run SM_LAT early for the smoothing; xx_ov/active_d are delayed back,
     // so the flag still trails the delayed xx step by the 2 buffer/rgb_pre stages.
-    localparam SM_LAT = 10;
+    localparam SM_LAT = 9;
     integer cyc = 0;
     reg [7:0] xx_r = 0, xx_d1 = 0, xx_d2 = 0;
     reg col_now;

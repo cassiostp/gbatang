@@ -60,12 +60,21 @@ module hdmi
     // generating a signal from scratch instead of processing an
     // external signal.
     parameter int START_X = 0,
-    parameter int START_Y = 0
+    parameter int START_Y = 0,
+
+    // Native-rate frame width: the 720p mode (VIDEO_ID_CODE 4) uses this line
+    // length when std_timing is 0, and the standard 1650 when it is 1. Only
+    // frame_width changes; frame_height, the active area and the sync pulse
+    // start/size stay the 720p values, so the picture position is unchanged.
+    parameter int NATIVE_FRAME_WIDTH = 1650
 )
 (
     input logic clk_pixel_x5,
     input logic clk_pixel,
     input logic clk_audio,
+    // 1: standard 60 Hz 720p timing (1650 x 750), for displays that refuse
+    // the native rate; 0: native console rate (NATIVE_FRAME_WIDTH x 750).
+    input logic std_timing,
     // synchronous reset back to 0,0
     input logic reset,
     input logic [23:0] rgb,
@@ -127,7 +136,7 @@ generate
             end
         4:
         begin
-            assign frame_width = 1650;
+            assign frame_width = std_timing ? 1650 : NATIVE_FRAME_WIDTH;
             assign frame_height = 750;
             assign screen_width = 1280;
             assign screen_height = 720;

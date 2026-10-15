@@ -1,7 +1,9 @@
 // Stand-ins for the Gowin and HDMI parts of a scaler, for simulation: a pixel
-// counter with the real module's timing (cx, cy count the 1650x750 frame, and
+// counter with the real module's timing (cx counts the frame_width x 750
+// frame, std_timing ? 1650 : NATIVE_FRAME_WIDTH like the real hdmi.sv, and
 // the picture is the rgb input seen while cx = x + 1), and a pass-through
-// output buffer.
+// output buffer. An unconnected std_timing (the history baselines built by
+// prep.sh predate the port) reads as Z and selects the standard 1650.
 module hdmi #(
     parameter VIDEO_ID_CODE = 4,
     parameter DVI_OUTPUT = 0,
@@ -10,11 +12,13 @@ module hdmi #(
     parameter AUDIO_RATE = 48000,
     parameter AUDIO_BIT_WIDTH = 16,
     parameter START_X = 0,
-    parameter START_Y = 0
+    parameter START_Y = 0,
+    parameter NATIVE_FRAME_WIDTH = 1657
 ) (
     input         clk_pixel_x5,
     input         clk_pixel,
     input         clk_audio,
+    input         std_timing,
     input  [23:0] rgb,
     input         reset,
     input  [15:0] audio_sample_word [1:0],
@@ -25,13 +29,15 @@ module hdmi #(
     output [10:0] frame_width,
     output [9:0]  frame_height
 );
-    assign frame_width = 1650;
+    wire std_eff = (std_timing === 1'b0) ? 1'b0 : 1'b1;
+    wire [10:0] fw = std_eff ? 11'd1650 : NATIVE_FRAME_WIDTH;
+    assign frame_width = fw;
     assign frame_height = 750;
     assign tmds = 3'b0;
     assign tmds_clock = 1'b0;
     always @(posedge clk_pixel) begin
-        cx <= (cx == 11'd1649) ? 11'd0 : cx + 11'd1;
-        if (cx == 11'd1649)
+        cx <= (cx == fw - 1'b1) ? 11'd0 : cx + 11'd1;
+        if (cx == fw - 1'b1)
             cy <= (cy == 10'd749) ? 10'd0 : cy + 10'd1;
     end
 endmodule

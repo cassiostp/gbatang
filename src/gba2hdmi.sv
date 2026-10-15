@@ -28,6 +28,9 @@ module gba2hdmi (
     input sl_out,               // core_config[21]: dark output rows instead of an integer scale
     input [31:0] video_config,  // colour controls, CRT mask, LCD grid and smoothing, see video_fx.v, smooth.v
 
+    input std_timing,           // 1: standard 60 Hz 720p timing, 0: native GBA rate (see hdmi.sv)
+    output rel_toggle,          // frame lock: toggles once per HDMI frame at RELEASE_ROW (clk_pixel domain)
+
     // output [7:0] led,
 
 	// output signals
@@ -359,6 +362,24 @@ video_fx fx (
 // HDMI output.
 logic[2:0] tmds;
 
+// Frame lock release: the top-level halt waits at the first GBA vblank line
+// and runs again when HDMI reaches RELEASE_ROW. The GBA vblank remainder is
+// 68 lines (~5.0 ms, ~225 HDMI rows), so releasing here puts the freshly
+// written line 0 a few rows ahead of the HDMI read at the top of the frame;
+// writes run faster than reads after that (one GBA line per ~3.3 HDMI rows
+// against one line read per 4.5 rows), so the margin only grows down the
+// frame. Edge-triggered (one toggle per HDMI frame over a synchroniser in
+// the top), so a late arrival waits for the next frame.
+localparam RELEASE_ROW = 515;   // HDMI row whose start releases the GBA
+reg at_rel_q = 1'b0;
+reg rel_toggle_r = 1'b0;
+always @(posedge clk_pixel) begin
+    at_rel_q <= (cy == RELEASE_ROW);
+    if ((cy == RELEASE_ROW) && !at_rel_q)
+        rel_toggle_r <= ~rel_toggle_r;
+end
+assign rel_toggle = rel_toggle_r;
+
 hdmi #( .VIDEO_ID_CODE(VIDEOID), 
         .DVI_OUTPUT(0), 
         .VIDEO_REFRESH_RATE(VIDEO_REFRESH),
@@ -366,11 +387,13 @@ hdmi #( .VIDEO_ID_CODE(VIDEOID),
         .AUDIO_RATE(AUDIO_RATE), 
         .AUDIO_BIT_WIDTH(AUDIO_BIT_WIDTH),
         .START_X(0),
-        .START_Y(0) )
+        .START_Y(0),
+        .NATIVE_FRAME_WIDTH(1657) )
 
 hdmi( .clk_pixel_x5(clk_5x_pixel), 
         .clk_pixel(clk_pixel), 
         .clk_audio(clk_audio),
+        .std_timing(std_timing),
         .rgb(rgb), 
         .reset( 0 ),
         .audio_sample_word(audio_sample_word),

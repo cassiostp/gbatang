@@ -129,6 +129,37 @@ wire [31:0] core_config;
 wire [31:0] video_config;     // from iosys
 wire pause = core_config[17] & gbaon;     // menu pause, only active while the game runs
 
+// Native-rate frame lock: run the GBA at exactly the HDMI rate (59.7465 Hz
+// with the native htotal 1657). The GBA frame (280896 mclk) waits at the
+// first vblank line once it runs slightly faster than HDMI (needs the PLL
+// fix in the open questions; until then the wait never comes) and runs
+// again when HDMI reaches RELEASE_ROW in the video module. The release is
+// edge-triggered over a 3-flop synchroniser, so a late arrival waits for the
+// next frame and the phase is exact. This freezes the same gates as the menu
+// pause; the DDR3 path's pause-only audio mute is untouched, and the halt
+// never injects silence (sound keeps running, HDMI keeps sampling it).
+wire video_std_timing = 1'b0;   // 1: standard 60 Hz timing (for displays that refuse the native rate; a menu option for it may come later)
+wire rel_toggle;                // from the video module (pixel-clock domain)
+reg [2:0] rel_sync = 0;
+reg rel_lvl_q = 0;
+wire rel_pulse = rel_sync[2] ^ rel_lvl_q;   // one clk16 per HDMI frame
+reg frame_halt = 0;
+wire core_hold = pause | frame_halt;
+always @(posedge clk16) begin
+    if (!resetn || !gbaon) begin
+        rel_sync <= 3'b0;
+        rel_lvl_q <= 1'b0;
+        frame_halt <= 1'b0;
+    end else begin
+        rel_sync <= {rel_sync[1:0], rel_toggle};
+        rel_lvl_q <= rel_sync[2];
+        if (vblank_trigger)
+            frame_halt <= 1'b1;             // first vblank line, frame written: wait
+        else if (rel_pulse)
+            frame_halt <= 1'b0;             // HDMI at the release row: run
+    end
+end
+
 /* verilator public_on */
 
 // CPU bus signals
@@ -172,7 +203,7 @@ wire [3:0] IRP_Timer, IRP_DMA;
 ////////////////////////////
 
 gba_cpu cpu (
-    .clk(clk16), .rst(~gbaon), .cpu_en(cpu_en & ~halt & ~pause), .cpu_restart(~gbaon), .fiq(1'b0), 
+    .clk(clk16), .rst(~gbaon), .cpu_en(cpu_en & ~halt & ~core_hold), .cpu_restart(~gbaon), .fiq(1'b0), 
     .irq(cpu_IRP), .thumb(thumb),
     .ram_abort(1'b0), .ram_rdata(ram_rdata), .rom_abort(1'b0), .rom_data(rom_data),
     .ram_addr(ram_addr), .ram_cen(ram_cen), .ram_flag(ram_be), .ram_wdata(ram_wdata),
@@ -238,7 +269,7 @@ wire [3:0] palette_oam_we;
 wire phase = ~clk16;    // 0: internal GPU work, 1: get data from CPU
 
 gba_gpu #(.FCLK_SPEED(3)) gpu (
-    .fclk(clk50), .mclk(clk16), .phase(phase), .reset(~gbaon), .pause(pause),
+    .fclk(clk50), .mclk(clk16), .phase(phase), .reset(~gbaon), .pause(core_hold),
     `GB_BUS_PORTS_INST,
 
     // config
@@ -521,7 +552,7 @@ gba_interrupts intr (.clk(clk16), .resetn(gbaon),
 ////////////////////////////
 
 gba_dma dma (
-    .clk100(clk16), .reset(~gbaon), .ce(~pause /*~halt*/), `GB_BUS_PORTS_INST, 
+    .clk100(clk16), .reset(~gbaon), .ce(~core_hold /*~halt*/), `GB_BUS_PORTS_INST, 
     .new_cycles(1), .new_cycles_valid(1'b1), .irp_dma(IRP_DMA), .lastread_dma(), 
     .dma_on(dma_on), .do_step(1'b1), .cpu_preemptable(cpu_en),      // always start DMA after a ready cycle
     .sound_dma_req(sound_dma_req), .hblank_trigger(hblank_trigger), .vblank_trigger(vblank_trigger), 
@@ -537,7 +568,7 @@ gba_dma dma (
 // Timer
 ////////////////////////////
 gba_timer timer (
-    .clk(clk16), .gb_on(~pause), .reset(~gbaon), 
+    .clk(clk16), .gb_on(~core_hold), .reset(~gbaon), 
     `GB_BUS_PORTS_INST,
     .IRP_Timer(IRP_Timer),  .timer0_tick(timer0_tick), .timer1_tick(timer1_tick), 
     .debugout0(), .debugout1(), .debugout2(), .debugout3() );
@@ -615,6 +646,7 @@ gba2hdmi_ddr3 video (       // DDR3-based framebuffer
     .sound_left(pause ? 16'd0 : sound_out_left), .sound_right(pause ? 16'd0 : sound_out_right),
     .overlay(overlay), .overlay_x(overlay_x), .overlay_y(overlay_y), .overlay_color(overlay_color),
     .freeze(core_config[6] | core_config[17]),
+    .std_timing(video_std_timing), .rel_toggle(rel_toggle),
 
     .ddr_addr(ddr_addr), .ddr_bank(ddr_bank), .ddr_cs(ddr_cs), .ddr_ras(ddr_ras), .ddr_cas(ddr_cas),
     .ddr_we(ddr_we), .ddr_ck(ddr_ck), .ddr_ck_n(ddr_ck_n), .ddr_cke(ddr_cke), .ddr_odt(ddr_odt),
@@ -641,6 +673,7 @@ gba2hdmi video (            // BRAM-based framebuffer
     .overlay_x(overlay_x), .overlay_y(overlay_y), .overlay_color(overlay_color),
     .scanlines(core_config[16]), .sl_darkness(core_config[19:18]), .sl_thick(core_config[20]), .sl_out(core_config[21]),
     .video_config(video_config),
+    .std_timing(video_std_timing), .rel_toggle(rel_toggle),
 	.tmds_clk_n(tmds_clk_n), .tmds_clk_p(tmds_clk_p), .tmds_d_n(tmds_d_n),
 	.tmds_d_p(tmds_d_p)
 );

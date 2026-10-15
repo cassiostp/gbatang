@@ -77,4 +77,4 @@
 -en_clkfbout false
 -dyn_mdiv_sel false
 -mdiv_sel 67
--mdiv_frac_sel 0
+-mdiv_frac_sel 2

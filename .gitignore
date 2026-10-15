@@ -7,3 +7,9 @@ src/usb_hid_host_firmware/ukp.lst
 # frame-lock bench artefacts
 sim/framelock/*.out
 sim/framelock/*.log
+
+# audio-hold bench artefacts (generated shadow sources, build outputs, log)
+sim/audio/shadow/
+sim/audio/*.out
+sim/audio/*.log
+sim/audio/obj_dir/

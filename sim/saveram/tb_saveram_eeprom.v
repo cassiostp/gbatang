@@ -16,11 +16,11 @@
 
 module tb_saveram_eeprom;
 
-parameter FREQ = 16_650_000;          // gbatang clk16
+parameter FREQ = 16_812_500;          // gbatang clk16 (138K: 27x67.25/108)
 parameter BIT = 500.0;                // 2 Mbaud, ns
 
 reg clk = 0;
-always #30.03 clk = ~clk;
+always #29.7369 clk = ~clk;
 reg resetn = 0;
 reg uart_rx = 1;
 wire uart_tx;

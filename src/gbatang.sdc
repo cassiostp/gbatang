@@ -1,13 +1,13 @@
 # set_multicycle_path: https://docs.xilinx.com/r/en-US/ug903-vivado-using-constraints/set_multicycle_path-Syntax
 
-# Main clock @ 16.65
-create_clock -name clk16 -period 60.06  -waveform {0 30.03} [get_nets {clk16}]
+# Main clock @ 16.8125 (pll_33: 27x67.25/108)
+create_clock -name clk16 -period 59.474  -waveform {0 29.737} [get_nets {clk16}]
 #create_generated_clock -name clk16 -source [get_nets {clk67}] -divide_by 4 [get_nets {clk16}]
 
-# SDRAM clock @ 66.6
+# SDRAM clock @ 67.25
 create_generated_clock -name clk67 -source [get_nets {clk16}] -multiply_by 4 [get_nets {clk67}]
 
-# GPU clock @ 49.95
+# GPU clock @ 50.4375
 create_generated_clock -name clk50 -source [get_nets {clk16}] -multiply_by 3 [get_nets {clk50}]
 
 # 4-cycle path from SDRAM to CPU/RV

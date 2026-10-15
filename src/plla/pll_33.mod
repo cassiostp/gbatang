@@ -64,4 +64,4 @@
 -en_clkout6 false
 -en_clkfbout false
 -mdiv_sel 37
--mdiv_frac_sel 0
+-mdiv_frac_sel 3

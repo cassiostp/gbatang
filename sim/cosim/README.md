@@ -72,7 +72,7 @@ build (grep checks + printed diff):
 - Clocks: `fclk` = 4x `clk` (not 3x); there is no `clkref` — `sdram_gba`
   uses `mclk` (here: `clk`) as its resync reference, and iosys runs with
   `FREQ=21_492_000` so the UART hits 2 Mbaud in bridge ticks (the board
-  runs iosys at 16.65 MHz; its timers count clocks, not seconds).
+  runs iosys at 16.81/16.82 MHz; its timers count clocks, not seconds).
 - Save map: `sdram_gba`'s save client byte-reads/writes the 128KB cart-RAM
   region (`sv_addr[16]` = flash bank, byte lane = `sv_addr[0]`); save byte
   `o` rides chip 1 halfword 0x20000 + o/2, i.e. linear byte 0x40000 + o.

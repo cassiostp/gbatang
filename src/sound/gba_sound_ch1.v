@@ -2,28 +2,29 @@
 // Channel 1 is Tone & Sweep
 // Channel 2 is Tone only
 module gba_sound_ch1(clk, reset, gb_on, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_bus_rnw, gb_bus_ena, gb_bus_done, gb_bus_acc, gb_bus_be, gb_bus_rst, 
-            sound_out, sound_on);
+            sound_out, sound_on, ce);
 
     `include "pproc_bus_gba.sv"
     `include "preg_gba_sound.sv"
 
     parameter                 has_sweep = 0;
-    parameter    regmap_type  Reg_Number_of_sweep_shift     ;
-    parameter    regmap_type  Reg_Sweep_Frequency_Direction ;
-    parameter    regmap_type  Reg_Sweep_Time                ;
-    parameter    regmap_type  Reg_Sound_length              ;
-    parameter    regmap_type  Reg_Wave_Pattern_Duty         ;
-    parameter    regmap_type  Reg_Envelope_Step_Time        ;
-    parameter    regmap_type  Reg_Envelope_Direction        ;
-    parameter    regmap_type  Reg_Initial_Volume_of_envelope;
-    parameter    regmap_type  Reg_Frequency                 ;
-    parameter    regmap_type  Reg_Length_Flag               ;
-    parameter    regmap_type  Reg_Initial                   ;
-    parameter    regmap_type  Reg_HighZero                  ;
+    parameter    regmap_type  Reg_Number_of_sweep_shift = '{0,0,0,0,0,0};
+    parameter    regmap_type  Reg_Sweep_Frequency_Direction = '{0,0,0,0,0,0};
+    parameter    regmap_type  Reg_Sweep_Time = '{0,0,0,0,0,0};
+    parameter    regmap_type  Reg_Sound_length = '{0,0,0,0,0,0};
+    parameter    regmap_type  Reg_Wave_Pattern_Duty = '{0,0,0,0,0,0};
+    parameter    regmap_type  Reg_Envelope_Step_Time = '{0,0,0,0,0,0};
+    parameter    regmap_type  Reg_Envelope_Direction = '{0,0,0,0,0,0};
+    parameter    regmap_type  Reg_Initial_Volume_of_envelope = '{0,0,0,0,0,0};
+    parameter    regmap_type  Reg_Frequency = '{0,0,0,0,0,0};
+    parameter    regmap_type  Reg_Length_Flag = '{0,0,0,0,0,0};
+    parameter    regmap_type  Reg_Initial = '{0,0,0,0,0,0};
+    parameter    regmap_type  Reg_HighZero = '{0,0,0,0,0,0};
 
     input                     clk;
     input                     reset;
     input                     gb_on;
+    input                     ce;           // 0: hold counters and output (register writes still apply)
     
     `GB_BUS_PORTS_DECL;
         
@@ -176,6 +177,7 @@ module gba_sound_ch1(clk, reset, gb_on, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_
             end 
             
             if (ch_on) begin
+            if (ce) begin
                 // cpu cycle trigger
                 soundcycles_freq <= soundcycles_freq + 1;
                 soundcycles_sweep <= soundcycles_sweep + 1;
@@ -273,6 +275,7 @@ module gba_sound_ch1(clk, reset, gb_on, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_
                     sound_out <= signed'(volume);
                 else
                     sound_out <= -1 * signed'(volume);
+            end
             end else
                 sound_out <= {16{1'b0}};
             

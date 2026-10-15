@@ -98,6 +98,14 @@ module gbatang_top (
 
 `include "pproc_bus_gba.sv"
 
+// clk16 rate in Hz, per board (pll_33 dividers in the Clocking section below):
+// the RTC timebase and the iosys UART baud derive from it.
+`ifdef DDR3_FRAMEBUFFER
+localparam CLK16_HZ = 16818750;   // 60K: 27x37.375/60
+`else
+localparam CLK16_HZ = 16812500;   // 138K: 27x67.25/108
+`endif
+
 // Clocking
 `ifndef VERILATOR
 wire clk27;         // intermediate 27Mhz clock for HDMI
@@ -312,7 +320,9 @@ gba_gpu #(.FCLK_SPEED(3)) gpu (
 ////////////////////////////
 
 gba_sound sound (
-    .clk(clk16), .reset(~gbaon), .gb_on(1'b1),     // gb_on=0 resets the channels; the output is muted instead
+    .clk(clk16), .reset(~gbaon), .gb_on(1'b1), .ce(~core_hold),     // gb_on=0 resets the channels; the output is muted instead.
+        // ce=~core_hold: the PSG steps with the game (timers/DMA already freeze
+        // under core_hold), so halt holds the mix instead of letting it run sharp
     `GB_BUS_PORTS_INST,
     .timer0_tick(timer0_tick), .timer1_tick(timer1_tick), .sound_dma_req(sound_dma_req),
     .sound_out_left(sound_out_left), .sound_out_right(sound_out_right),
@@ -437,7 +447,7 @@ assign time_strobe = 1'b0;
 `endif
 wire [7:0]  rtc_sv_q;
 wire        rtc_sv_we = (sv_req ^ sv_req_d) & sv_we & sv_rtc;
-gba_gpio_rtc #(.CLK_HZ(16650000)) gpio_rtc (
+gba_gpio_rtc #(.CLK_HZ(CLK16_HZ)) gpio_rtc (
     .clk(clk16), .rst(loading == 3'd1),
     .rtc_present(config_gpio[0]), .solar_present(config_gpio[1]),
     .cs(gpio_cs), .valid(gpio_valid), .write(gpio_write),
@@ -683,7 +693,7 @@ gba2hdmi video (            // BRAM-based framebuffer
 // iosys for menu, rom loading and other functions
 ////////////////////////////
 
-iosys_bl616 #(.CORE_ID(3), .COLOR_LOGO(15'b01111_01100_10101), .FREQ(16_650_000),
+iosys_bl616 #(.CORE_ID(3), .COLOR_LOGO(15'b01111_01100_10101), .FREQ(CLK16_HZ),
     .SAVE_IF(1), .SAVE_AW(18), .SAVE_SYNC(0)) iosys (
 `ifdef DDR3_FRAMEBUFFER
     .clk(clk16), .hclk(clk50),      // hclk=clk50: goes to framebuffer_ddr3 for overlay

@@ -1,12 +1,13 @@
 
 // Channel 4 is white noise
 module gba_sound_ch4(clk, reset, gb_on, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_bus_rnw, gb_bus_ena, gb_bus_done, gb_bus_acc, gb_bus_be, gb_bus_rst, 
-            sound_out, sound_on);
+            sound_out, sound_on, ce);
     `include "pproc_bus_gba.sv"
     `include "preg_gba_sound.sv"
     input                      clk;
     input                      reset;
     input                      gb_on;
+    input                      ce;           // 0: hold counters and output (register writes still apply)
     
     `GB_BUS_PORTS_DECL;
 
@@ -163,6 +164,7 @@ module gba_sound_ch4(clk, reset, gb_on, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_
             end 
             
             if (ch_on) begin
+            if (ce) begin
                 // cpu cycle trigger
                 soundcycles_freq <= soundcycles_freq + 1;
                 soundcycles_envelope <= soundcycles_envelope + 1;
@@ -220,6 +222,7 @@ module gba_sound_ch4(clk, reset, gb_on, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_
                     sound_out <= signed'(volume);
                 else
                     sound_out <= -1 * signed'(volume);
+            end
             end else
                 sound_out <= {16{1'b0}};
             

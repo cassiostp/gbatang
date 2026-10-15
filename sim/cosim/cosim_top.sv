@@ -8,7 +8,7 @@
 // CYCLES AND CLOCKS
 //   clk/mclk/resetn come from the C++ bridge; fclk must be exactly 4x clk
 //   (sdram_gba's 4-cycle frame resyncs on every mclk posedge, and its clkref
-//   IS mclk: the board runs the 67MHz ram clock at 4 x the 16.65MHz GBA
+//   IS mclk: the board runs the 67MHz ram clock at 4 x the 16.81/16.82MHz GBA
 //   clock, phase-locked). mclk is clk: the bridge's sim tick is one iosys/
 //   GBA clock period, and fclk is the coincident 4x ram clock. hclk is tied
 //   to clk by the bridge: it only feeds textdisp's render pipeline, whose
@@ -16,7 +16,7 @@
 //   array, below).
 //   One sim tick (firmware sim_time, 1/21.492MHz) is one clk period; iosys
 //   runs with FREQ=21_492_000 so its UART lands at the real 2 Mbaud in ticks
-//   (the board runs iosys at 16.65MHz; everything else in iosys counts
+//   (the board runs iosys at 16.81/16.82MHz; everything else in iosys counts
 //   clocks, not seconds, so it tracks sim time like on hardware).
 //
 // PROGRAMMING MODEL

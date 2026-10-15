@@ -67,7 +67,6 @@ defparam PLLA_inst.ODIV5_SEL = 8;
 defparam PLLA_inst.ODIV6_SEL = 8;
 defparam PLLA_inst.MDIV_SEL = 37;
 defparam PLLA_inst.MDIV_FRAC_SEL = 3;
-defparam PLLA_inst.MDIV_FRAC_SEL = 0;
 defparam PLLA_inst.ODIV0_FRAC_SEL = 0;
 defparam PLLA_inst.CLKOUT0_EN = "TRUE";
 defparam PLLA_inst.CLKOUT1_EN = "TRUE";

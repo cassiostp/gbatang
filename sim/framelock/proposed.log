@@ -1,0 +1,54 @@
+../../src/gba2hdmi.sv:93: warning: Port 5 (cea) of fb expects 1 bits, got 32.
+../../src/gba2hdmi.sv:93:        : Pruning 31 high bits of the expression.
+../../src/gba2hdmi.sv:93: warning: Port 6 (reseta) of fb expects 1 bits, got 32.
+../../src/gba2hdmi.sv:93:        : Pruning 31 high bits of the expression.
+../../src/gba2hdmi.sv:93: warning: Port 10 (ceb) of fb expects 1 bits, got 32.
+../../src/gba2hdmi.sv:93:        : Pruning 31 high bits of the expression.
+../../src/gba2hdmi.sv:93: warning: Port 12 (wreb) of fb expects 1 bits, got 32.
+../../src/gba2hdmi.sv:93:        : Pruning 31 high bits of the expression.
+../../src/gba2hdmi.sv:93: warning: Port 16 (dinb) of fb expects 18 bits, got 32.
+../../src/gba2hdmi.sv:93:        : Pruning 14 high bits of the expression.
+../../src/gba2hdmi.sv:393: warning: Port 5 (reset) of hdmi expects 1 bits, got 32.
+../../src/gba2hdmi.sv:393:        : Pruning (signed) 31 high bits of the expression.
+../../src/gba2hdmi.sv:393: warning: Port 10 (cx) of hdmi expects 12 bits, got 11.
+../../src/gba2hdmi.sv:393:        : Padding 1 high bits of the port.
+../../src/gba2hdmi.sv:393: warning: Port 12 (frame_width) of hdmi expects 12 bits, got 11.
+../../src/gba2hdmi.sv:393:        : Padding 1 high bits of the port.
+FRAME h=-1 halts=1 vblanks=1 halt_us=0.00 min_age_us=-1.00 max_age_us=-1.00 stale=0 audio=0/0
+FRAME h=0 halts=1 vblanks=1 halt_us=16469.84 min_age_us=-1.00 max_age_us=-1.00 stale=0 audio=0/0
+FRAME h=1 halts=2 vblanks=2 halt_us=16592.22 min_age_us=-1.00 max_age_us=-1.00 stale=0 audio=0/0
+FRAME h=2 halts=3 vblanks=3 halt_us=16714.55 min_age_us=-1.00 max_age_us=-1.00 stale=0 audio=0/0
+FRAME h=3 halts=4 vblanks=4 halt_us=16836.93 min_age_us=4621.12 max_age_us=4621.12 stale=0 audio=0/0
+FRAME h=4 halts=5 vblanks=5 halt_us=16959.31 min_age_us=229.27 max_age_us=4621.12 stale=0 audio=0/0
+FRAME h=5 halts=1 vblanks=1 halt_us=122.32 min_age_us=229.25 max_age_us=4621.07 stale=0 audio=0/0
+FRAME h=6 halts=2 vblanks=2 halt_us=244.70 min_age_us=229.25 max_age_us=4621.11 stale=0 audio=0/0
+FRAME h=7 halts=3 vblanks=3 halt_us=367.03 min_age_us=229.25 max_age_us=4621.11 stale=0 audio=0/0
+FRAME h=8 halts=4 vblanks=4 halt_us=489.41 min_age_us=229.25 max_age_us=4621.12 stale=0 audio=0/0
+FRAME h=9 halts=5 vblanks=5 halt_us=611.79 min_age_us=229.25 max_age_us=4621.12 stale=0 audio=0/0
+FRAME h=10 halts=6 vblanks=6 halt_us=734.11 min_age_us=229.25 max_age_us=4621.12 stale=0 audio=0/0
+FRAME h=11 halts=7 vblanks=7 halt_us=856.49 min_age_us=229.25 max_age_us=4621.12 stale=0 audio=0/0
+FRAME h=12 halts=8 vblanks=8 halt_us=978.82 min_age_us=229.25 max_age_us=4621.12 stale=0 audio=0/0
+FRAME h=13 halts=9 vblanks=9 halt_us=1101.20 min_age_us=229.25 max_age_us=4621.13 stale=0 audio=0/0
+FRAME h=14 halts=10 vblanks=10 halt_us=1223.58 min_age_us=229.25 max_age_us=4621.13 stale=0 audio=0/0
+FRAME h=15 halts=11 vblanks=11 halt_us=1345.90 min_age_us=229.25 max_age_us=4621.13 stale=0 audio=0/0
+FRAME h=16 halts=12 vblanks=12 halt_us=1468.28 min_age_us=229.25 max_age_us=4621.13 stale=0 audio=0/0
+STEADY halts=12 vblanks=12 halt_us_per_frame=122.36 stale=0
+FRAME h=17 halts=0 vblanks=0 halt_us=0.00 min_age_us=-1.00 max_age_us=-1.00 stale=0 audio=0/0
+FRAME h=18 halts=0 vblanks=0 halt_us=0.00 min_age_us=-1.00 max_age_us=-1.00 stale=0 audio=0/0
+FRAME h=19 halts=0 vblanks=0 halt_us=0.00 min_age_us=-1.00 max_age_us=-1.00 stale=0 audio=0/0
+FRAME h=20 halts=0 vblanks=0 halt_us=0.00 min_age_us=-1.00 max_age_us=-1.00 stale=0 audio=0/0
+FRAME h=21 halts=1 vblanks=1 halt_us=122.32 min_age_us=-1.00 max_age_us=-1.00 stale=0 audio=0/0
+FRAME h=22 halts=2 vblanks=2 halt_us=244.70 min_age_us=229.28 max_age_us=4621.10 stale=0 audio=0/0
+FRAME h=23 halts=3 vblanks=3 halt_us=367.03 min_age_us=229.26 max_age_us=4621.10 stale=0 audio=0/0
+FRAME h=24 halts=4 vblanks=4 halt_us=489.41 min_age_us=229.26 max_age_us=4621.11 stale=0 audio=0/0
+POSTPAUSE halts=4 vblanks=4 stale=0
+FRAME h=-1 halts=1 vblanks=1 halt_us=0.00 min_age_us=-1.00 max_age_us=-1.00 stale=0 audio=0/0
+FRAME h=0 halts=1 vblanks=1 halt_us=16370.89 min_age_us=-1.00 max_age_us=-1.00 stale=0 audio=0/0
+FRAME h=1 halts=2 vblanks=2 halt_us=16493.27 min_age_us=-1.00 max_age_us=-1.00 stale=0 audio=0/0
+FRAME h=2 halts=3 vblanks=3 halt_us=16615.59 min_age_us=-1.00 max_age_us=-1.00 stale=0 audio=0/0
+FRAME h=3 halts=4 vblanks=4 halt_us=16737.97 min_age_us=229.30 max_age_us=4621.12 stale=0 audio=0/0
+FRAME h=4 halts=5 vblanks=5 halt_us=16860.35 min_age_us=229.27 max_age_us=4621.12 stale=0 audio=0/0
+FRAME h=5 halts=6 vblanks=6 halt_us=16982.67 min_age_us=229.25 max_age_us=4621.12 stale=0 audio=0/0
+POSTRESET halts=6 vblanks=6 stale=0
+tb_frame_lock: PASS
+tb_frame_lock.v:323: $finish called at 552432787734 (1ps)

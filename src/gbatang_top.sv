@@ -146,7 +146,7 @@ wire pause = core_config[17] & gbaon;     // menu pause, only active while the g
 // next frame and the phase is exact. This freezes the same gates as the menu
 // pause; the DDR3 path's pause-only audio mute is untouched, and the halt
 // never injects silence (sound keeps running, HDMI keeps sampling it).
-wire video_std_timing = 1'b0;   // 1: standard 60 Hz timing (for displays that refuse the native rate; a menu option for it may come later)
+wire video_std_timing = 1'b1;   // 1: standard 60 Hz timing (for displays that refuse the native rate; a menu option for it may come later)
 wire rel_toggle;                // from the video module (pixel-clock domain)
 reg [2:0] rel_sync = 0;
 reg rel_lvl_q = 0;

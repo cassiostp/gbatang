@@ -224,10 +224,10 @@ module gba_sound_ch3(clk, reset, gb_on, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_
                 soundcycles_freq <= soundcycles_freq + 1;
                 soundcycles_length <= soundcycles_length + 1;
                 
-                if (soundcycles_freq >= 2) begin		// freq / wavetable
-                    freq_cnt <= freq_cnt + 1;
-                    soundcycles_freq <= soundcycles_freq - 2;
-                end 
+                if (soundcycles_freq >= 1) begin		// freq / wavetable: one
+                    freq_cnt <= freq_cnt + 1;			// step every 2 PSG cycles
+                    soundcycles_freq <= soundcycles_freq - 1;
+                end
                 
                 freq_check <= 2048 - freq_divider;
                 

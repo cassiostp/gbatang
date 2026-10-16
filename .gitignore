@@ -8,6 +8,11 @@ src/usb_hid_host_firmware/ukp.lst
 sim/framelock/*.out
 sim/framelock/*.log
 
+# fast-UART bench artefacts (generated shadow source, build outputs, waves)
+sim/fastuart/iosys_sim.v
+sim/fastuart/*.out
+sim/fastuart/*.vcd
+
 # audio-hold bench artefacts (generated shadow sources, build outputs, log)
 sim/audio/shadow/
 sim/audio/*.out

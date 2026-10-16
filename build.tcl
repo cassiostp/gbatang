@@ -66,6 +66,7 @@ set_option -output_base_name gbatang_${dev}
 
 add_file -type verilog "src/iosys/iosys_bl616.v"
 add_file -type verilog "src/iosys/uart_fixed.v"
+add_file -type verilog "src/iosys/uart_fast.v"
 
 add_file -type verilog "src/iosys/textdisp.v"
 add_file -type verilog "src/iosys/gowin_dpb_menu.v"

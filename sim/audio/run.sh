@@ -20,7 +20,7 @@ cd "$(dirname "$0")"
 RTL=../../src
 SHADOW=$PWD/shadow
 python3 mkshadow.py "$RTL" "$SHADOW"
-IV="docker run --rm --name audio_tb --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/audio tangcore-iv:1"
+IV="docker run --rm --name gbaaudio_audio_tb --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/audio tangcore-iv:1"
 $IV sh -c 'iverilog -g2012 -o tb_audio_hold.out -I shadow tb_audio_hold.v \
     shadow/gba_sound.v shadow/gba_sound_ch1.v \
     shadow/gba_sound_ch3.v shadow/gba_sound_ch4.v \

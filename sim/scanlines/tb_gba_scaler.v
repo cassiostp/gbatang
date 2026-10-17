@@ -4,6 +4,9 @@
 // Checks, for each setting, every output row of the frame against the model of
 // src/scanlines.v: which source line it shows, border rows, dark rows and the darkened
 // colour; and the horizontal extent of the picture.
+// Then the BFI modes (video_config[21:20]): lit/inserted alternation, black/dim
+// inserted frames, mode 3 as black, the overlay exempt, and one retention phase
+// swap (forced counter) alternating the duplicate.
 // Fails with $fatal on the first mismatch.
 `timescale 1ns/1ps
 
@@ -15,6 +18,7 @@ module tb_gba_scaler;
 
     reg        sl_on = 0, sl_thick = 0, sl_out = 0, ov = 0;
     reg  [1:0] sl_dark = 0;
+    reg [31:0] vcfg = 0;
     wire [10:0] overlay_x;
     wire  [9:0] overlay_y;
     reg  [15:0] overlay_color = 16'b0_10101_01010_11100;   // BGR5
@@ -27,19 +31,19 @@ module tb_gba_scaler;
         .pixel_data(18'd0), .pixel_x(8'd0), .pixel_y(8'd0), .pixel_we(1'b0),
         .sound_left(16'd0), .sound_right(16'd0),
         .overlay(ov), .overlay_x(overlay_x), .overlay_y(overlay_y), .overlay_color(overlay_color),
-        .scanlines(sl_on), .sl_darkness(sl_dark), .sl_thick(sl_thick), .sl_out(sl_out), .video_config(32'd0),
-        .std_timing(1'b0),      // native GBA rate
+        .scanlines(sl_on), .sl_darkness(sl_dark), .sl_thick(sl_thick), .sl_out(sl_out), .video_config(vcfg),
+        .std_timing(1'b0),      // native GBA rate x2
         .tmds_clk_n(tmds_clk_n), .tmds_clk_p(tmds_clk_p), .tmds_d_n(tmds_d_n), .tmds_d_p(tmds_d_p)
     );
 
     // what the HDMI sink would show: rgb while cx = x + 1
-    reg [23:0] img [0:1280*720-1];
+    reg [23:0] img [0:720*480-1];
     always @(posedge clk_pixel)
-        if (dut.cy < 10'd720 && dut.cx >= 11'd1 && dut.cx <= 11'd1280)
-            img[dut.cy * 1280 + dut.cx - 1] = dut.rgb;
+        if (dut.cy < 10'd480 && dut.cx >= 11'd1 && dut.cx <= 11'd720)
+            img[dut.cy * 720 + dut.cx - 1] = dut.rgb;
 
     localparam BORDER = 24'h303030;
-    localparam R = 4, LINES = 160, TOP = 40, GEOM_W = 960, FULL_W = 1080;
+    localparam R = 3, LINES = 160, TOP = 0, GEOM_W = 720, FULL_W = 720;
 
     // source picture: line l (0..159) has colour src_color(l) (RGB6), or, when loaded by
     // column, column c has colour col_color(c)
@@ -63,21 +67,32 @@ module tb_gba_scaler;
     function [23:0] overlay_rgb(input [14:0] o);
         overlay_rgb = {o[4:0], 3'b0, o[9:5], 3'b0, o[14:10], 3'b0};
     endfunction
+    function [23:0] half_rgb(input [23:0] p);      // BFI dim: every channel halved
+        half_rgb = {1'b0, p[23:17], 1'b0, p[15:9], 1'b0, p[7:1]};
+    endfunction
 
     task load_rows;
-        integer l, c;
+        integer l, c, i;
         begin
             for (l = 0; l < 160; l = l + 1)
                 for (c = 0; c < 240; c = c + 1)
                     dut.u_fb.m[l * 240 + c] = src_color(l);
+            // the stub RAM beyond the picture: the smoothing reads one line
+            // past the edge (xx overshoot); on hardware the BRAM returns real
+            // bits there (multiplied by zero with smoothing off), in sim it
+            // would be X and poison the exact-zero blends through X * 0.
+            for (i = 38400; i < 65536; i = i + 1)
+                dut.u_fb.m[i] = 18'd0;
         end
     endtask
     task load_columns;
-        integer l, c;
+        integer l, c, i;
         begin
             for (l = 0; l < 160; l = l + 1)
                 for (c = 0; c < 240; c = c + 1)
                     dut.u_fb.m[l * 240 + c] = col_color(c);
+            for (i = 38400; i < 65536; i = i + 1)
+                dut.u_fb.m[i] = 18'd0;
         end
     endtask
 
@@ -94,27 +109,26 @@ module tb_gba_scaler;
         darken = {dim8(p[23:16], d), dim8(p[15:8], d), dim8(p[7:0], d)};
     endfunction
 
-    // 160 lines: 4 rows each with scanlines (640 rows, 40 border rows above and below),
-    // 4 or 5 without (the old scale)
+    // 160 lines: 3 rows per source line with scanlines (480 rows, no border),
+    // 3 rows per line without too (160 x 3 = 480 exactly)
     reg cur_geom;
     function integer exp_line(input integer row);     // -1 for a border row
         begin
-            if (cur_geom)
-                exp_line = (row < TOP || row >= TOP + R * LINES) ? -1 : (row - TOP) / R;
-            else
-                exp_line = row * LINES / 720;
+            // the integer scale is exact, so the fractional counter and the
+            // integer geometry agree: every 3 rows are one source line
+            exp_line = row / 3;
         end
     endfunction
 
     // wait for the end of the frame drawn with the new settings: img holds it when this
-    // returns (in the blanking at row 726). Called right after the previous check, the
+    // returns (in the blanking after row 480). Called right after the previous check, the
     // next frame is the first with the new settings; at the start it takes one more.
     integer settle_frames = 2;
     task settle;
         begin
             repeat (settle_frames) begin
-                while (dut.cy != 10'd725) @(posedge clk_pixel);
-                while (dut.cy == 10'd725) @(posedge clk_pixel);
+                while (dut.cy != 10'd521) @(posedge clk_pixel);
+                while (dut.cy == 10'd521) @(posedge clk_pixel);
             end
             settle_frames = 1;
         end
@@ -131,13 +145,15 @@ module tb_gba_scaler;
     integer row, line, nd, XP, x, first, last, runs, runlen, minrun, maxrun, w, pw, ptop;
     reg [23:0] want, got, prev;
 
+    // the picture is full-bleed 720 wide: no borders unless the overlay is up
+    // (640 wide, centred: x 40..679)
     task check_rows(input on, input out, input thick, input [1:0] dk, input over);
         begin
             nd = thick ? 2 : 1;
             ptop = cur_geom ? TOP : 0;
-            XP = 640;
-            for (row = 0; row < 720; row = row + 1) begin
-                got = img[row * 1280 + XP];
+            XP = 360;
+            for (row = 0; row < 480; row = row + 1) begin
+                got = img[row * 720 + XP];
                 line = exp_line(row);
                 if (over)
                     want = overlay_rgb(overlay_color[14:0]);
@@ -149,8 +165,13 @@ module tb_gba_scaler;
                         want = darken(want, dk);
                 end
                 if (got !== want) fail("picture", row, got, want);
-                if (img[row * 1280 + 50] !== BORDER) fail("left border", row, img[row * 1280 + 50], BORDER);
-                if (img[row * 1280 + 1250] !== BORDER) fail("right border", row, img[row * 1280 + 1250], BORDER);
+                if (over) begin
+                    if (img[row * 720 + 5] !== BORDER) fail("left border", row, img[row * 720 + 5], BORDER);
+                    if (img[row * 720 + 714] !== BORDER) fail("right border", row, img[row * 720 + 714], BORDER);
+                end else begin
+                    if (img[row * 720 + 0] !== want) fail("left edge", row, img[row * 720 + 0], want);
+                    if (img[row * 720 + 719] !== want) fail("right edge", row, img[row * 720 + 719], want);
+                end
             end
         end
     endtask
@@ -159,10 +180,10 @@ module tb_gba_scaler;
     task check_columns;
         begin
             pw = cur_geom ? GEOM_W : FULL_W;
-            row = 360;
+            row = 240;
             first = -1; last = -1; runs = 0; minrun = 99; maxrun = 0; runlen = 0; prev = BORDER;
-            for (x = 0; x < 1280; x = x + 1) begin
-                got = img[row * 1280 + x];
+            for (x = 0; x < 720; x = x + 1) begin
+                got = img[row * 720 + x];
                 if (got !== BORDER) begin
                     if (first < 0) first = x;
                     last = x;
@@ -178,8 +199,8 @@ module tb_gba_scaler;
                 prev = got;
             end
             w = last - first + 1;
-            if (first !== (1280 - pw) / 2 || w !== pw) begin
-                $display("FAIL: picture spans x=%0d..%0d (width %0d), want %0d..%0d (geom=%b)", first, last, w, (1280 - pw) / 2, (1280 + pw) / 2 - 1, cur_geom);
+            if (first !== (720 - pw) / 2 || w !== pw) begin
+                $display("FAIL: picture spans x=%0d..%0d (width %0d), want %0d..%0d (geom=%b)", first, last, w, (720 - pw) / 2, (720 + pw) / 2 - 1, cur_geom);
                 $fatal(1, "tb_gba_scaler: FAIL");
             end
             if (runs !== 240) begin
@@ -217,12 +238,43 @@ module tb_gba_scaler;
         end
     endtask
 
+    // BFI: sample dut.rgb at the picture centre (cy 240, cx 361: source line 80)
+    // in a chosen frame parity. Assumes scanlines off and no colour FX.
+    task sample_frame(input ins, output [23:0] rgb);
+        begin
+            do begin
+                @(posedge clk_pixel);
+            end while (!(dut.cy == 10'd240 && dut.cx == 11'd361 && dut.bfi_ins == ins));
+            rgb = dut.rgb;
+        end
+    endtask
+
+    task bfi_fail(input [8*60-1:0] what, input [23:0] got, input [23:0] want);
+        begin
+            $display("FAIL: %0s: got %h, want %h (bfi_mode=%b)", what, got, want, vcfg[21:20]);
+            $fatal(1, "tb_gba_scaler: FAIL");
+        end
+    endtask
+
+    // set the BFI mode in the blanking so the next frame is stable throughout
+    task set_bfi(input [1:0] mode);
+        begin
+            while (dut.cy < 10'd500) @(posedge clk_pixel);
+            vcfg[21:20] = mode;
+            settle_frames = 1;
+            settle;
+        end
+    endtask
+
+    reg [23:0] lit_rgb, ins_rgb;
+    reg [23:0] want_lit;
+
     initial begin
         cur_geom = 0;
         #1;
         load_rows;
         // by row: the vertical geometry and the darkening
-        run(0, 0, 0, 2, 0);                     // off: the old geometry
+        run(0, 0, 0, 2, 0);                     // off: 3 rows per line, full frame
         run(1, 0, 0, 2, 0);                     // the default: integer, thin, 75 %
         run(1, 0, 1, 0, 0);
         run(1, 0, 0, 1, 0);
@@ -232,9 +284,78 @@ module tb_gba_scaler;
         run(1, 0, 0, 2, 1);                     // menu up: the overlay is left alone
         run(1, 1, 1, 2, 1);
         run(1, 0, 1, 2, 0);                     // and back
-        // by column: the horizontal geometry
+        // by column: the horizontal geometry (240 columns x 3 = 720)
         load_columns;
         columns(0, 0); columns(1, 0); columns(1, 1);
+        // BFI modes, scanlines off for exact pixel values
+        load_rows;
+        set(0, 0, 0, 2, 0);
+        want_lit = to_rgb(src_color(80));
+        set_bfi(2'd0);                          // off: both frames lit
+        sample_frame(1'b0, lit_rgb);
+        if (lit_rgb !== want_lit) bfi_fail("mode 0 lit", lit_rgb, want_lit);
+        sample_frame(1'b1, ins_rgb);
+        if (ins_rgb !== want_lit) bfi_fail("mode 0 inserted", ins_rgb, want_lit);
+        $display("gba2hdmi BFI mode 0 (both lit): ok");
+        set_bfi(2'd1);                          // black inserted frame
+        sample_frame(1'b0, lit_rgb);
+        if (lit_rgb !== want_lit) bfi_fail("mode 1 lit", lit_rgb, want_lit);
+        sample_frame(1'b1, ins_rgb);
+        if (ins_rgb !== 24'h000000) bfi_fail("mode 1 inserted", ins_rgb, 24'h000000);
+        $display("gba2hdmi BFI mode 1 (black): ok");
+        set_bfi(2'd2);                          // dim inserted frame
+        sample_frame(1'b0, lit_rgb);
+        if (lit_rgb !== want_lit) bfi_fail("mode 2 lit", lit_rgb, want_lit);
+        sample_frame(1'b1, ins_rgb);
+        if (ins_rgb !== half_rgb(want_lit)) bfi_fail("mode 2 inserted", ins_rgb, half_rgb(want_lit));
+        $display("gba2hdmi BFI mode 2 (dim): ok");
+        set_bfi(2'd3);                          // rolling: treated as black here
+        sample_frame(1'b1, ins_rgb);
+        if (ins_rgb !== 24'h000000) bfi_fail("mode 3 inserted", ins_rgb, 24'h000000);
+        $display("gba2hdmi BFI mode 3 (as black): ok");
+        // the overlay stays lit under BFI
+        ov = 1;
+        set_bfi(2'd1);
+        sample_frame(1'b1, ins_rgb);
+        if (ins_rgb !== overlay_rgb(overlay_color[14:0])) bfi_fail("overlay under BFI", ins_rgb, overlay_rgb(overlay_color[14:0]));
+        sample_frame(1'b0, lit_rgb);
+        if (lit_rgb !== overlay_rgb(overlay_color[14:0])) bfi_fail("overlay lit frame", lit_rgb, overlay_rgb(overlay_color[14:0]));
+        ov = 0;
+        $display("gba2hdmi BFI overlay exempt: ok");
+        // retention phase swap: deposit the counter near the end and watch the
+        // duplicate alternate (a force would hold it; a deposit lets it run)
+        set_bfi(2'd1);
+        dut.bfi_swap_cnt = 16'd1797;
+        begin
+            integer f, eff_seq[0:9];
+            for (f = 0; f < 10; f = f + 1) begin
+                do begin
+                    @(posedge clk_pixel);
+                end while (!(dut.cy == 10'd240 && dut.cx == 11'd361));
+                eff_seq[f] = dut.bfi_ins ^ dut.bfi_phase;
+            end
+            // exactly one duplicate pair (the swap), strict alternation elsewhere
+            begin
+                integer d, dup;
+                dup = -1;
+                for (d = 0; d < 9; d = d + 1)
+                    if (eff_seq[d] == eff_seq[d+1]) begin
+                        if (dup != -1) begin
+                            $display("FAIL: two swap duplicates in 10 frames");
+                            $fatal(1, "tb_gba_scaler: FAIL");
+                        end
+                        dup = d;
+                    end
+                if (dup == -1) begin
+                    $display("FAIL: no swap duplicate in 10 frames");
+                    $fatal(1, "tb_gba_scaler: FAIL");
+                end
+                $display("swap eff sequence: %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d (dup at +%0d)",
+                         eff_seq[0], eff_seq[1], eff_seq[2], eff_seq[3], eff_seq[4],
+                         eff_seq[5], eff_seq[6], eff_seq[7], eff_seq[8], eff_seq[9], dup);
+                $display("gba2hdmi BFI phase swap duplicate: ok");
+            end
+        end
         $display("tb_gba_scaler: PASS");
         $finish;
     end

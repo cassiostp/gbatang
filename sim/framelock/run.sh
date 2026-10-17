@@ -3,13 +3,14 @@
 #   tb_frame_lock   the real gba2hdmi (138K BRAM path) with a faithful
 #                   hdmi.sv stand-in (hdmi_frame_stub.v: identical cx/cy and
 #                   frame_width semantics; iverilog cannot parse the real
-#                   packet_assembler.sv) at the native htotal 1657, against a
-#                   line-cited model of the GBA frame (1008+224 mclk/line, 228
-#                   lines), gated by an exact copy of the gbatang_top halt
-#                   block. Startup, 12-frame steady lock, 3-frame menu pause,
-#                   200 us core reset. The real hdmi.sv is elaborated under
-#                   Verilator instead (see below): it parses the SV the
-#                   iverilog image cannot.
+#                   packet_assembler.sv) at the native htotal 861 (480p120),
+#                   against a line-cited model of the GBA frame (1008+224
+#                   mclk/line, 228 lines), gated by an exact copy of the
+#                   gbatang_top halt block. Each game frame is read twice
+#                   (lit, inserted). Startup, 12-game-frame steady lock,
+#                   3-game-frame menu pause, 200 us core reset. The real
+#                   hdmi.sv is elaborated under Verilator instead (see below):
+#                   it parses the SV the iverilog image cannot.
 #
 # Three clock configs (half periods in ns):
 #   138K      clk16 16.8125 MHz (27*67.25/108, the round-2 PLL), clk50
@@ -22,7 +23,7 @@
 set -e
 cd "$(dirname "$0")"
 RTL=../../src
-IV="docker run --rm --name gbaaudio_framelock_tb --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/framelock tangcore-iv:1"
+IV="docker run --rm --name r6hz120gba_framelock --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/framelock tangcore-iv:1"
 HDMI="hdmi_frame_stub.v"
 $IV sh -c 'iverilog -g2012 -o tb_138k.out tb_frame_lock.v prim_stubs.v '"$HDMI"' \
     '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v '"$RTL"'/smooth.v \

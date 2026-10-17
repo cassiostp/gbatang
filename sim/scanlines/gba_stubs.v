@@ -2,7 +2,7 @@
 // 240x160 frame buffer block RAM (one clock of read latency).
 module pll_74 (input clkin, output reg clkout0, output reg clkout1);
     initial begin clkout0 = 0; clkout1 = 0; end
-    always #6.734 clkout0 = ~clkout0;       // 74.25 MHz
+    always #9.2593 clkout0 = ~clkout0;       // 54 MHz
 endmodule
 
 module fb (douta, doutb, clka, ocea, cea, reseta, wrea, clkb, oceb, ceb, resetb, wreb, ada, dina, adb, dinb);

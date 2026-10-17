@@ -137,20 +137,20 @@ wire [31:0] core_config;
 wire [31:0] video_config;     // from iosys
 wire pause = core_config[17] & gbaon;     // menu pause, only active while the game runs
 
-// Native-rate frame lock: run the GBA at exactly the HDMI rate (59.7465 Hz
-// with the native htotal 1657). The GBA frame (280896 mclk) waits at the
-// first vblank line once it runs slightly faster than HDMI (needs the PLL
-// fix in the open questions; until then the wait never comes) and runs
-// again when HDMI reaches RELEASE_ROW in the video module. The release is
+// Native-rate frame lock: run the GBA at exactly half the HDMI rate (59.7312 Hz
+// with the native htotal 861 at 480p120). The GBA frame (280896 mclk) waits at the
+// first vblank line once it runs slightly faster than HDMI and runs
+// again when HDMI reaches RELEASE_ROW in an even frame in the video module. Each
+// game frame is shown twice for BFI. The release is
 // edge-triggered over a 3-flop synchroniser, so a late arrival waits for the
-// next frame and the phase is exact. This freezes the same gates as the menu
+// next pair and the phase is exact. This freezes the same gates as the menu
 // pause; the DDR3 path's pause-only audio mute is untouched, and the halt
 // never injects silence (sound keeps running, HDMI keeps sampling it).
-wire video_std_timing = 1'b0;   // 1: standard 60 Hz timing (for displays that refuse the native rate; a menu option for it may come later)
+wire video_std_timing = 1'b0;   // 1: standard 120 Hz 480p timing (for displays that refuse the native rate); 0: native GBA rate x2 (861-pixel lines)
 wire rel_toggle;                // from the video module (pixel-clock domain)
 reg [2:0] rel_sync = 0;
 reg rel_lvl_q = 0;
-wire rel_pulse = rel_sync[2] ^ rel_lvl_q;   // one clk16 per HDMI frame
+wire rel_pulse = rel_sync[2] ^ rel_lvl_q;   // one clk16 per game frame (two HDMI frames)
 reg frame_halt = 0;
 wire core_hold = pause | frame_halt;
 always @(posedge clk16) begin

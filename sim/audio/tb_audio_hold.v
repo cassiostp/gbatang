@@ -31,8 +31,8 @@
 module tb_audio_hold;
 
     localparam CLK16H = 29.7369;            // 138K clk16 16.8125 MHz, half period
-    localparam FRAME = 281398;              // mclk per HDMI frame at 16.8125 MHz
-    localparam HOLD = FRAME - 280896;       // 502 mclk halted per frame
+    localparam FRAME = 281469;              // mclk per game frame at 16.8125 MHz (480p120 lock: 59.7312 Hz)
+    localparam HOLD = FRAME - 280896;       // 573 mclk halted per frame
     localparam NFRAMES = 24;
     localparam FREE_CLKS = 3000000;
     localparam WAVE_N = 1929;               // ch2 freq reg

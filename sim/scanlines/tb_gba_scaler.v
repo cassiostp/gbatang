@@ -240,6 +240,20 @@ module tb_gba_scaler;
 
     // BFI: sample dut.rgb at the picture centre (cy 240, cx 361: source line 80)
     // in a chosen frame parity. Assumes scanlines off and no colour FX.
+    // Frame dumps for the report: the settled img as PPM (P3 ASCII).
+    task dump_ppm(input [8*64-1:0] path);
+        integer fd, dx, dy;
+        begin
+            fd = $fopen(path, "w");
+            $fwrite(fd, "P3\n720 480\n255\n");
+            for (dy = 0; dy < 480; dy = dy + 1)
+                for (dx = 0; dx < 720; dx = dx + 1)
+                    $fwrite(fd, "%0d %0d %0d\n",
+                        img[dy * 720 + dx][23:16], img[dy * 720 + dx][15:8], img[dy * 720 + dx][7:0]);
+            $fclose(fd);
+            $display("gba2hdmi dumped %0s", path);
+        end
+    endtask
     task sample_frame(input ins, output [23:0] rgb);
         begin
             do begin
@@ -356,6 +370,15 @@ module tb_gba_scaler;
                 $display("gba2hdmi BFI phase swap duplicate: ok");
             end
         end
+        // frame dumps for the report (centred, integer-scaled, OSD position)
+        load_rows;
+        set(1, 0, 0, 2, 0);
+        set_bfi(2'd0);
+        dump_ppm("frame_game.ppm");
+        ov = 1;
+        set_bfi(2'd1);
+        dump_ppm("frame_osd.ppm");
+        ov = 0;
         $display("tb_gba_scaler: PASS");
         $finish;
     end

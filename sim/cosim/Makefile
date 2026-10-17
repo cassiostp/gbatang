@@ -71,6 +71,8 @@ $(GEN)/uart_fixed_sim.v: $(RTL)/iosys/uart_fixed.v
 COSIM_SRCS := /coresim-src/sim/cosim/cosim_top.sv \
 	/coresim-build/gen/iosys_bl616_cosim.v \
 	/coresim-build/gen/uart_fixed_sim.v \
+	/coresim-src/src/iosys/uart_fast.v \
+	/coresim-src/src/common/dual_clk_fifo.v \
 	/coresim-src/src/iosys/textdisp.v \
 	/coresim-src/sim/cosim/gowin/gowin_dpb_menu.v \
 	/coresim-build/gen/sdram_gba_sim.v \
@@ -105,6 +107,7 @@ lint: $(GEN)/iosys_bl616_cosim.v $(GEN)/sdram_gba_sim.v $(GEN)/uart_fixed_sim.v
 	$(IVERILOG) iverilog -g2012 -DCOSIM -o /dev/null -s cosim_top \
 	    /coresim-src/sim/cosim/cosim_top.sv \
 	    /coresim-build/gen/iosys_bl616_cosim.v /coresim-build/gen/uart_fixed_sim.v \
+	    /coresim-src/src/iosys/uart_fast.v /coresim-src/src/common/dual_clk_fifo.v \
 	    /coresim-src/src/iosys/textdisp.v /coresim-src/sim/cosim/gowin/gowin_dpb_menu.v \
 	    /coresim-build/gen/sdram_gba_sim.v /coresim-src/sim/cosim/sdram_chip.sv
 	@echo "cosim_top elaborates under iverilog"

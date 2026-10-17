@@ -32,11 +32,28 @@ module iosys_bl616 #(
     // save channel (sv_req/sv_ack), read data a few clocks after the ack.
     parameter SAVE_IF=0,
     parameter SAVE_AW=13,               // save RAM address width in bytes (13 = 8 KB)
-    parameter SAVE_SYNC=1
+    parameter SAVE_SYNC=1,
+    // FAST UART (fast ROM loading). FAST_UART=1 moves the UART into the
+    // clk_fast domain (must be >= 8x the fastest baud, e.g. a 4x SDRAM
+    // clock) behind dual-clock FIFOs and enables two extra commands:
+    //   MCU -> FPGA 0x15 code[7:0]   switch the link baud for what follows
+    //     (code 0=2M the power-on rate, 1=4M, 2=5M, 3=8M; answered at the
+    //     OLD rate, both sides switch after the answer)
+    //   FPGA -> MCU 0x0C code max    accepted code + highest code offered
+    //   MCU -> FPGA 0x16             ask for the load check values
+    //   FPGA -> MCU 0x0D crc32 cnt   CRC-32 (zlib) and byte count of the
+    //     rom_do bytes since rom_loading last changed (BE32 each); the MCU
+    //     compares against the file it sent, so a fast load is verified.
+    // At a fast rate the core reverts to 2M after 1 s without a received
+    // byte, and on reset, so a lost switch can never wedge the link.
+    // FAST_UART=0 (default) elaborates exactly the old single-rate UART
+    // and clk_fast is unused. Old firmware never sends 0x15/0x16.
+    parameter FAST_UART=0,
+    parameter FAST_FREQ=67_250_000     // clk_fast rate in Hz (FAST_UART only)
 )
 (
     input clk,                      // main logic clock
-    // input clk50,                    // 50mhz clock for UART
+    input clk_fast,                 // fast clock for FAST_UART (tie to clk if unused)
     input hclk,                     // hdmi clock
     input resetn,
 
@@ -115,35 +132,236 @@ reg [7:0] tx_data;
 reg tx_valid;
 wire tx_ready;
 
-// synchronize uart_rx to clk
-reg uart_rx_r = 1, uart_rx_rr = 1;
+// Fast-UART baud state (clk domain; inert when FAST_UART=0). baud_cur is
+// the code both ends are using now; a 0x15 request toggles
+// baud_switch_req_tgl with baud_pending_code held, and the apply block
+// below performs the switch once the 0x0C answer has left the transmitter.
+reg [1:0] baud_cur = 0;
+reg [1:0] baud_pending_code = 0;
+reg baud_switch_req_tgl = 0;
+reg [1:0] baud_ack_code = 0;        // accepted code, for the 0x0C answer
+reg baud_ack_sent = 0;              // TX pulse: the 0x0C answer is queued out
+wire fast_tx_idle;                  // fast domain drained (1 when !FAST_UART)
+reg [1:0] baud_code_c_m = 0;        // apply block -> fast domain: new code
+reg baud_tgl_c_m = 0;               //   held stable, toggled to request it
+
+// Load check values (FAST_UART only): CRC-32 and count of the rom_do bytes
+// since rom_loading last changed, read back with command 0x16.
+reg [31:0] load_crc = 32'hFFFF_FFFF;
+reg [31:0] load_cnt = 0;
+reg [31:0] crc_snap, cnt_snap;      // snapshot while the 0x0D answer is sent
+
+generate if (FAST_UART) begin : fast_uart
+    // Baud select in the fast domain: baud_code_c_m/baud_tgl_c_m come
+    // from clk (held stable around the toggle), sampled here when the
+    // link is idle so no byte is ever split across two rates.
+    reg [1:0] baud_code_f = 0;
+    reg [1:0] baud_tgl_f_s = 0;
+    reg baud_tgl_f_d = 0;
+    reg baud_pend_f = 0;
+    wire frx_idle;
+    wire ftx_busy_w;
+    wire tx_fifo_empty_w;
+    always @(posedge clk_fast) begin
+        baud_tgl_f_s <= {baud_tgl_f_s[0], baud_tgl_c_m};
+        baud_tgl_f_d <= baud_tgl_f_s[1];
+        if (baud_tgl_f_s[1] != baud_tgl_f_d)
+            baud_pend_f <= 1;
+        if (baud_pend_f && frx_idle && !ftx_busy_w && tx_fifo_empty_w) begin
+            baud_code_f <= baud_code_c_m;
+            baud_pend_f <= 0;
+        end
+    end
+
+    // RX: fast receiver -> dual-clock FIFO -> one rx_valid pulse per byte.
+    // The FIFOs reset asynchronously: they need a 1->0 resetn edge (the
+    // power-on GSR on hardware). A reset that starts low and only rises
+    // leaves rempty at its Verilator/Icarus init value, so benches must
+    // pulse resetn; see sim/fastuart/tb_iosys_fastuart.v.
+    reg uart_rx_f_r = 1, uart_rx_f_rr = 1;
+    always @(posedge clk_fast) begin
+        uart_rx_f_r <= uart_rx;
+        uart_rx_f_rr <= uart_rx_f_r;
+    end
+    wire [7:0] frx_data;
+    wire frx_valid;
+    fast_async_receiver #(.ClkFrequency(FAST_FREQ)) uart_receiver_f (
+        .clk(clk_fast), .RxD(uart_rx_f_rr), .baud_code(baud_code_f),
+        .RxD_data(frx_data), .RxD_data_ready(frx_valid),
+        .RxD_idle(frx_idle), .RxD_endofpacket()
+    );
+    wire [7:0] rx_fifo_rdata;
+    wire rx_fifo_empty;
+    wire rx_fifo_wfull_w;
+    reg rx_valid_r = 0;
+    reg [7:0] rx_data_r = 0;
+    dual_clk_fifo #(.DATASIZE(8), .ADDRSIZE(5)) rx_fifo (
+        .clk(clk_fast), .wrst_n(resetn), .wdata(frx_data),
+        .winc(frx_valid && !rx_fifo_wfull_w),
+        .rclk(clk), .rrst_n(resetn),
+        .rinc(!rx_fifo_empty && !rx_valid_r), .rdata(rx_fifo_rdata),
+        .wfull(rx_fifo_wfull_w), .rempty(rx_fifo_empty),
+        .almost_full(), .almost_empty()
+    );
+    always @(posedge clk) begin
+        rx_valid_r <= 0;
+        if (resetn && !rx_fifo_empty && !rx_valid_r) begin
+            rx_data_r <= rx_fifo_rdata;
+            rx_valid_r <= 1;
+        end
+    end
+    assign rx_data = rx_data_r;
+    assign rx_valid = rx_valid_r;
+
+    // TX: the clk-domain state machine writes a dual-clock FIFO
+    // (tx_ready = room in it); the fast domain feeds the transmitter.
+    // Backpressure uses almost_full (3 free slots), not full: full is a
+    // registered output, so a write issued just as the FIFO fills would
+    // overwrite an unread entry. almost_full asserts early enough that the
+    // state machine (one byte per two clocks at most) always stops in time.
+    wire [7:0] tx_fifo_rdata;
+    wire tx_fifo_full;
+    wire tx_fifo_almost_full_w;
+    reg ftx_start = 0;
+    reg [7:0] ftx_data = 0;
+    wire ftx_pop = !tx_fifo_empty_w && !ftx_busy_w && !ftx_start;
+    dual_clk_fifo #(.DATASIZE(8), .ADDRSIZE(5)) tx_fifo (
+        .clk(clk), .wrst_n(resetn), .wdata(tx_data),
+        .winc(tx_valid && !tx_fifo_full),
+        .rclk(clk_fast), .rrst_n(resetn),
+        .rinc(ftx_pop), .rdata(tx_fifo_rdata),
+        .wfull(tx_fifo_full), .rempty(tx_fifo_empty_w),
+        .almost_full(tx_fifo_almost_full_w), .almost_empty()
+    );
+    assign tx_ready = ~tx_fifo_full & ~tx_fifo_almost_full_w;
+    fast_async_transmitter #(.ClkFrequency(FAST_FREQ)) uart_transmitter_f (
+        .clk(clk_fast), .TxD_start(ftx_start), .TxD_data(ftx_data),
+        .baud_code(baud_code_f), .TxD(uart_tx), .TxD_busy(ftx_busy_w)
+    );
+    always @(posedge clk_fast) begin
+        ftx_start <= 0;
+        if (ftx_pop) begin
+            ftx_data <= tx_fifo_rdata;
+            ftx_start <= 1;
+        end
+    end
+
+    // "Transmitter fully drained" for the switch sequencer, synced to clk.
+    reg [1:0] tx_idle_s = 0;
+    always @(posedge clk)
+        tx_idle_s <= {tx_idle_s[0], tx_fifo_empty_w && !ftx_busy_w && !ftx_start};
+    assign fast_tx_idle = tx_idle_s[1];
+end else begin : slow_uart
+    // synchronize uart_rx to clk
+    reg uart_rx_r = 1, uart_rx_rr = 1;
+    always @(posedge clk) begin
+        uart_rx_r <= uart_rx;
+        uart_rx_rr <= uart_rx_r;
+    end
+
+    wire tx_busy_w;
+    async_receiver #(
+        .ClkFrequency(CLK_FREQ),
+        .Baud(BAUD_RATE)
+    ) uart_receiver (
+        .clk(clk),
+        .RxD(uart_rx_rr),
+        .RxD_data(rx_data),
+        .RxD_data_ready(rx_valid)
+    );
+
+    async_transmitter #(
+        .ClkFrequency(CLK_FREQ),
+        .Baud(BAUD_RATE)
+    ) uart_transmitter (
+        .clk(clk),
+        .TxD(uart_tx),
+        .TxD_data(tx_data),
+        .TxD_start(tx_valid),
+        .TxD_busy(tx_busy_w)
+    );
+    assign tx_ready = ~tx_busy_w;
+    assign fast_tx_idle = 1'b1;
+end endgenerate
+
+// Baud apply + revert watchdog (clk domain). A switch is applied only
+// after its 0x0C answer has been transmitted (baud_ack_sent) and the
+// transmitter has drained, matching the MCU, which switches after it
+// receives the answer. At a fast rate, 1 s without a received byte
+// reverts to 2M: during a load bytes arrive every few us, so this only
+// fires when the two ends disagree about the rate.
+reg baud_req_pending = 0, baud_req_seen = 0, baud_ack_ok = 0;
+reg [31:0] baud_wd = 0;
 always @(posedge clk) begin
-    uart_rx_r <= uart_rx;
-    uart_rx_rr <= uart_rx_r;
+    if (!resetn) begin
+        baud_cur <= 0;
+        baud_code_c_m <= 0;
+        baud_tgl_c_m <= 0;
+        baud_req_pending <= 0;
+        baud_req_seen <= 0;
+        baud_ack_ok <= 0;
+        baud_wd <= 0;
+    end else if (FAST_UART) begin
+        if (baud_ack_sent)
+            baud_ack_ok <= 1;
+        if (baud_switch_req_tgl != baud_req_seen && !baud_req_pending) begin
+            baud_req_pending <= 1;
+            baud_ack_ok <= 0;
+        end
+        if (baud_req_pending && baud_ack_ok && fast_tx_idle) begin
+            baud_cur <= baud_pending_code;
+            baud_code_c_m <= baud_pending_code;
+            baud_tgl_c_m <= ~baud_tgl_c_m;
+            baud_req_pending <= 0;
+            baud_req_seen <= baud_switch_req_tgl;
+            baud_ack_ok <= 0;
+            baud_wd <= 0;
+        end else if (rx_valid) begin
+            baud_wd <= 0;
+        end else if (baud_cur != 0) begin
+            if (baud_wd >= FREQ - 1) begin
+                baud_cur <= 0;
+                baud_code_c_m <= 0;
+                baud_tgl_c_m <= ~baud_tgl_c_m;
+                baud_req_pending <= 0;
+                baud_req_seen <= baud_switch_req_tgl;
+                baud_ack_ok <= 0;
+                baud_wd <= 0;
+            end else
+                baud_wd <= baud_wd + 1;
+        end else
+            baud_wd <= 0;
+    end
 end
 
-// Instantiate UART modules
-async_receiver #(
-    .ClkFrequency(CLK_FREQ),
-    .Baud(BAUD_RATE)
-) uart_receiver (
-    .clk(clk),
-    .RxD(uart_rx_rr),
-    .RxD_data(rx_data),
-    .RxD_data_ready(rx_valid)
-);
-
-async_transmitter #(
-    .ClkFrequency(CLK_FREQ),
-    .Baud(BAUD_RATE)
-) uart_transmitter (
-    .clk(clk),
-    .TxD(uart_tx),
-    .TxD_data(tx_data),
-    .TxD_start(tx_valid),
-    .TxD_busy(tx_busy)
-);
-assign tx_ready = ~tx_busy;
+// Load CRC-32 (zlib polynomial, reflected) over the rom_do stream.
+function [31:0] crc32_next(input [31:0] c, input [7:0] d);
+    integer i;
+    reg [31:0] x;
+    begin
+        x = c ^ {24'b0, d};
+        for (i = 0; i < 8; i = i + 1)
+            x = x[0] ? ((x >> 1) ^ 32'hEDB88320) : (x >> 1);
+        crc32_next = x;
+    end
+endfunction
+reg [7:0] rom_loading_d = 0;
+always @(posedge clk) begin
+    if (!resetn) begin
+        load_crc <= 32'hFFFF_FFFF;
+        load_cnt <= 0;
+        rom_loading_d <= 0;
+    end else if (FAST_UART) begin
+        rom_loading_d <= rom_loading_reg;
+        if (rom_loading_reg != rom_loading_d) begin
+            load_crc <= 32'hFFFF_FFFF;
+            load_cnt <= 0;
+        end else if (rom_do_valid) begin
+            load_crc <= crc32_next(load_crc, rom_do);
+            load_cnt <= load_cnt + 1;
+        end
+    end
+end
 
 // Command processing state machine
 localparam RECV_IDLE         = 7'b0000001; // waiting for command
@@ -355,6 +573,9 @@ end
 // 0x14 unix[31:0] bcd[6:0] solar flags  set wall clock (13 payload bytes:
 //   unix seconds BE, BCD year mon day wday hour min sec, solar %, flags;
 //   toggles time_strobe so the RTC block resynchronises)
+// 0x15 code[7:0]             switch link baud (FAST_UART only; see the
+//   parameter note: reply 0x0C at the old rate, then both ends switch)
+// 0x16                       get load CRC32+count (FAST_UART only, reply 0x0D)
 //
 // Response payloads from FPGA to BL616:
 // 0x01 core_id[7:0]          core ID
@@ -364,6 +585,8 @@ end
 // 0x05 lba[15:0]             read a sector from disk (followed by command 0x0a)
 // 0x0a blk[15:0] <512 bytes> the requested save-RAM block (SAVE_IF only)
 // 0x0b 0x00                  save RAM changed by the core since the last dump (SAVE_IF only)
+// 0x0c code max              baud accepted + highest code (FAST_UART only)
+// 0x0d crc32 cnt (BE32 each) load check values (FAST_UART only)
 
 // UART RX: command processing
 always @(posedge clk) begin
@@ -395,6 +618,9 @@ always @(posedge clk) begin
         sv_req_blk <= 0;
         sv_blk_hi <= 0;
         sv_rd_req <= 0;
+        baud_pending_code <= 0;
+        baud_switch_req_tgl <= 0;
+        baud_ack_code <= 0;
     end else begin
         rom_do_valid <= 0;
         we <= 0;
@@ -433,8 +659,8 @@ always @(posedge clk) begin
 
             RECV_CMD: if (rx_valid) begin
                 cmd_reg <= rx_data;
-                if (rx_data == 1 || rx_data == 2) 
-                    recv_state <= RECV_RESPONSE_REQ;    // request sending core id / config string
+                if (rx_data == 1 || rx_data == 2 || (FAST_UART && rx_data == 'h16))
+                    recv_state <= RECV_RESPONSE_REQ;    // core id / config string / load CRC
                 else if (len_reg > 1)
                     recv_state <= RECV_PARAM;
                 else
@@ -577,6 +803,23 @@ always @(posedge clk) begin
                             sv_rd_req <= ~sv_rd_req;
                         end
                     end
+                    // Baud switch (FAST_UART only): answer at the old
+                    // rate first (response type 12 = 0x0C on the wire);
+                    // the apply block switches once that answer has
+                    // left the transmitter. An out-of-range code is
+                    // answered with the current code and switches nothing.
+                    'h15: if (FAST_UART && data_cnt == 0) begin
+                        baud_ack_code <= (rx_data <= 3) ? rx_data[1:0] : baud_cur;
+                        if (rx_data <= 3 && rx_data[1:0] != baud_cur) begin
+                            baud_pending_code <= rx_data[1:0];
+                            baud_switch_req_tgl <= ~baud_switch_req_tgl;
+                        end
+                        if (response_req == response_ack) begin
+                            response_type <= 8'd12;    // SEND_BAUD_ACK
+                            response_req <= ~response_req;
+                        end
+                        recv_state <= RECV_IDLE;        // single byte command
+                    end
                     default: begin
                         // unknown command: consume all data and return
                     end
@@ -589,10 +832,15 @@ always @(posedge clk) begin
             // sent then (the save task's next 0x12, a HID or core_config frame) was
             // lost. A request that arrives while one is still pending is merged
             // into it: the one reply answers both.
-            RECV_RESPONSE_REQ: begin                // 1: core ID, 2: config string
-                if ((cmd_reg == 1 || cmd_reg == 2) && response_req == response_ack) begin
-                    response_type <= cmd_reg;
-                    response_req <= ~response_req;
+            RECV_RESPONSE_REQ: begin                // 1: core ID, 2: config string, 0x16: load CRC
+                if (response_req == response_ack) begin
+                    if (cmd_reg == 1 || cmd_reg == 2) begin
+                        response_type <= cmd_reg;
+                        response_req <= ~response_req;
+                    end else if (FAST_UART && cmd_reg == 'h16) begin
+                        response_type <= 8'd13;    // SEND_LOAD_CRC
+                        response_req <= ~response_req;
+                    end
                 end
                 recv_state <= RECV_IDLE;
             end
@@ -614,6 +862,8 @@ localparam SEND_DONE = 7;
 
 localparam SEND_SAVE_BLK = 10;      // save-RAM block (response type 0x0A on the wire)
 localparam SEND_SAVE_DIRTY = 11;    // save-RAM changed notice (0x0B)
+localparam SEND_BAUD_ACK = 12;      // baud switch accepted (0x0C, FAST_UART only)
+localparam SEND_LOAD_CRC = 13;      // load CRC32+count (0x0D, FAST_UART only)
 
 reg [3:0] send_state, send_state_next;
 reg [$clog2(STR_LEN+1)-1:0] send_idx;
@@ -644,6 +894,9 @@ always @(posedge clk) begin
         sv_abort_stb <= 0;
         sv_wait <= 0;
         tx_wdog <= 0;
+        baud_ack_sent <= 0;
+        crc_snap <= 0;
+        cnt_snap <= 0;
     end else begin
         tx_valid <= 0;
         mgmt_read <= 0;
@@ -652,6 +905,7 @@ always @(posedge clk) begin
         sv_rd_stb <= 0;
         sv_data_taken <= 0;
         sv_abort_stb <= 0;
+        baud_ack_sent <= 0;
         
         // Joypad state transmission logic
         joy_timer <= joy_timer == 0 ? 0 : joy_timer - 1;
@@ -708,6 +962,16 @@ always @(posedge clk) begin
                         send_state_next <= SEND_CORE_ID;
                         send_state <= SEND_HEADER;
                         resp_frame_len <= 2;
+                    end else if (FAST_UART && response_type == SEND_BAUD_ACK) begin
+                        send_state_next <= SEND_BAUD_ACK;
+                        send_state <= SEND_HEADER;
+                        resp_frame_len <= 3;            // type + code + max
+                    end else if (FAST_UART && response_type == SEND_LOAD_CRC) begin
+                        send_state_next <= SEND_LOAD_CRC;
+                        send_state <= SEND_HEADER;
+                        resp_frame_len <= 9;            // type + crc32 + cnt32
+                        crc_snap <= load_crc ^ 32'hFFFF_FFFF;
+                        cnt_snap <= load_cnt;
                     end
                 // Save traffic goes last. The MCU asks for the next block as soon as
                 // one arrives, so a save request is nearly always pending during a
@@ -879,6 +1143,45 @@ always @(posedge clk) begin
                     tx_valid <= 1;
                     sv_notify <= 0;
                     send_state <= SEND_IDLE;
+                end
+            end
+
+            // Baud answer: accepted code, then the highest code offered
+            // (3). Sent at the old rate; baud_ack_sent tells the apply
+            // block it may switch once the transmitter has drained.
+            SEND_BAUD_ACK: begin
+                if (FAST_UART && tx_ready && ~tx_valid) begin
+                    tx_data <= (send_idx == 0) ? {6'b0, baud_ack_code} : 8'd3;
+                    tx_valid <= 1;
+                    send_idx <= send_idx + 1;
+                    if (send_idx == 1) begin
+                        send_state <= SEND_IDLE;
+                        response_ack <= response_req;
+                        baud_ack_sent <= 1;
+                    end
+                end
+            end
+
+            // Load check values: CRC-32 then byte count, big-endian,
+            // from the snapshot taken when this answer was picked up.
+            SEND_LOAD_CRC: begin
+                if (FAST_UART && tx_ready && ~tx_valid) begin
+                    case (send_idx)
+                        0: tx_data <= crc_snap[31:24];
+                        1: tx_data <= crc_snap[23:16];
+                        2: tx_data <= crc_snap[15:8];
+                        3: tx_data <= crc_snap[7:0];
+                        4: tx_data <= cnt_snap[31:24];
+                        5: tx_data <= cnt_snap[23:16];
+                        6: tx_data <= cnt_snap[15:8];
+                        default: tx_data <= cnt_snap[7:0];
+                    endcase
+                    tx_valid <= 1;
+                    send_idx <= send_idx + 1;
+                    if (send_idx == 7) begin
+                        send_state <= SEND_IDLE;
+                        response_ack <= response_req;
+                    end
                 end
             end
 

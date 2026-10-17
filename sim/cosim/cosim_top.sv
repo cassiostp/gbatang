@@ -17,7 +17,10 @@
 //   One sim tick (firmware sim_time, 1/21.492MHz) is one clk period; iosys
 //   runs with FREQ=21_492_000 so its UART lands at the real 2 Mbaud in ticks
 //   (the board runs iosys at 16.81/16.82MHz; everything else in iosys counts
-//   clocks, not seconds, so it tracks sim time like on hardware).
+//   clocks, not seconds, so it tracks sim time like on hardware). FAST_UART
+//   is on with FAST_FREQ=4xFREQ: clk_fast is the bridge's 4x fclk, like the
+//   board's 67 MHz ram clock over its 16.8 MHz GBA clock, so negotiated fast
+//   loads run at the real 8 Mbaud in ticks too.
 //
 // PROGRAMMING MODEL
 //   The generated iosys_bl616_cosim answers core-ID replies with the
@@ -170,9 +173,12 @@ iosys_bl616_cosim #(
     .FREQ(21_492_000),
     .SAVE_IF(1),
     .SAVE_AW(18),
-    .SAVE_SYNC(0)
+    .SAVE_SYNC(0),
+    .FAST_UART(1),
+    .FAST_FREQ(85_968_000)
 ) sys (
     .clk(clk),
+    .clk_fast(fclk),
     .hclk(hclk),
     .resetn(resetn),
     .cosim_core_id(cosim_core_id),

@@ -22,17 +22,17 @@
 set -e
 cd "$(dirname "$0")"
 RTL=../../src
-IV="docker run --rm --name gbaaudio_framelock_tb --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/framelock tangcore-iv:1"
+IV="docker run --rm --name r6vid_gba_framelock --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/framelock tangcore-iv:1"
 HDMI="hdmi_frame_stub.v"
 $IV sh -c 'iverilog -g2012 -o tb_138k.out tb_frame_lock.v prim_stubs.v '"$HDMI"' \
-    '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v '"$RTL"'/smooth.v \
+    '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v \
     -DCLK16H=29.7369 -DCLKP50H=9.9133 -DEXPECT_LOCK=1 -DSTD=0 \
     && vvp tb_138k.out' 2>&1 | tail -40
 $IV sh -c 'iverilog -g2012 -o tb_60k.out tb_frame_lock.v prim_stubs.v '"$HDMI"' \
-    '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v '"$RTL"'/smooth.v \
+    '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v \
     -DCLK16H=29.7289 -DCLKP50H=9.9096 -DEXPECT_LOCK=1 -DSTD=0 \
     && vvp tb_60k.out' 2>&1 | tail -15
 $IV sh -c 'iverilog -g2012 -o tb_slow.out tb_frame_lock.v prim_stubs.v '"$HDMI"' \
-    '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v '"$RTL"'/smooth.v \
+    '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v \
     -DCLK16H=29.8507 -DCLKP50H=9.9502 -DEXPECT_LOCK=0 -DSTD=0 \
     && vvp tb_slow.out' 2>&1 | tail -15

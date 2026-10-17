@@ -1,10 +1,10 @@
-// gba2hdmi with smoothing against the scaler it was built from (the baseline, built from
-// the git history by prep.sh as gba2hdmi_fx): with video_config[19:18] clear (0, or the
-// reserved 3) the rgb stream into the hdmi module must be the very same, clock for clock,
-// in every scanline mode and every picture mode the scaler has, with the other filters on
-// or off and the menu overlay up or not; and with the overlay up the same holds in every
-// smoothing mode, the overlay is never smoothed. Both get the same video_config (the
-// baseline ignores bits 19:18).
+// gba2hdmi without smoothing against the scaler it was removed from (the baseline,
+// built from the branch base by prep.sh as gba2hdmi_smoff, smoothing still in): with
+// smoothing off (video_config[19:18] 0, or the reserved 3) the rgb stream into the hdmi
+// module must be the very same, clock for clock, in every scanline mode and every picture
+// mode the scaler has, with the other filters on or off and the menu overlay up or not;
+// and with the overlay up the same holds in every smoothing mode, the overlay is never
+// smoothed. Both get the same video_config (the removal ignores bits 19:18).
 // The frame buffer holds a pseudo-random picture and the overlay is a pattern read through
 // the overlay_x / overlay_y outputs with a two clock latency, so a picture or overlay that
 // lands on other pixels is caught. Settings change in the blanking, then two whole frames
@@ -43,17 +43,18 @@ module tb_smooth_regress;
         .overlay(ov), .overlay_x(ovx_n), .overlay_y(ovy_n), .overlay_color(ovc_n),
         .scanlines(sl_on), .sl_darkness(sl_dark), .sl_thick(sl_thick), .sl_out(sl_out),
         .video_config(vcfg),
-        .std_timing(1'b1),      // history baseline predates std_timing: compare at standard 1650
+        .std_timing(1'b1),      // compare at standard 1650
         .tmds_clk_n(tmds_clk_n), .tmds_clk_p(tmds_clk_p), .tmds_d_n(tmds_d_n), .tmds_d_p(tmds_d_p)
     );
 
-    gba2hdmi_fx base (
+    gba2hdmi_smoff base (
         .clk(clk), .clk27(clk27), .resetn(1'b1), .clk_pixel(clk_pixel_b),
         .pixel_data(18'd0), .pixel_x(8'd0), .pixel_y(8'd0), .pixel_we(1'b0),
         .sound_left(16'd0), .sound_right(16'd0),
         .overlay(ov), .overlay_x(ovx_b), .overlay_y(ovy_b), .overlay_color(ovc_b),
         .scanlines(sl_on), .sl_darkness(sl_dark), .sl_thick(sl_thick), .sl_out(sl_out),
         .video_config(vcfg),
+        .std_timing(1'b1),
         .tmds_clk_n(tmds_clk_nb), .tmds_clk_p(tmds_clk_pb), .tmds_d_n(tmds_d_nb), .tmds_d_p(tmds_d_pb)
     );
 
@@ -124,7 +125,8 @@ module tb_smooth_regress;
     initial begin
         // the first frame runs the pipelines empty; the settings are applied in its blanking
         wait_row730;
-        variant(0, 0, 0, 2, 0, OFF);
+        variant(0, 0, 0, 2, 0, OFF);              // off, Integer scale: integer geometry, no darkening
+        variant(0, 1, 0, 2, 0, OFF);              // off, Full scale
         variant(0, 0, 0, 2, 0, FW_OFF);
         variant(0, 0, 0, 2, 0, RSVD);           // reserved: off
         variant(0, 0, 0, 0, 0, FXW);

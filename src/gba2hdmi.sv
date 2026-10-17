@@ -205,19 +205,30 @@ always @(posedge clk_pixel) yy_s <= sl_geom ? sl_yy : yy;
 // are read while cy still shows the previous row: a read lands on the screen
 // FX_LAT + SM_LAT + 2 = 22 clocks after its address cycle, and the 21
 // address cycles before cx == 0 belong to the row being drawn. The line for
-// those addresses is the coming row's, not the current one: with the exact
-// 3x scale that is cy_addr / 3, the same phasing sl_rows uses (yy/ycnt would
-// give the fractional stagger). The scanline flags are sampled with rgb_pre,
-// 11 clocks after the addresses, so a second sl_rows on cy_flag (the row
-// showing 11 clocks later) provides row-correct show/dark; overlay_y, the
-// grid flags and the (dead) smoothing weights keep the row-aligned yy_s.
+// those addresses is the coming row's, not the current one: yy_a counts it,
+// advancing at the address-block start (cx == NATIVE_LINE - 22) with the same
+// 3-rows phasing sl_rows uses (a clocked counter keeps the frame-buffer
+// address path shallow; yy/ycnt would give the fractional stagger). The
+// scanline flags are sampled with rgb_pre, 11 clocks after the addresses, so
+// a second sl_rows on cy_flag (the row showing then, plus sl_rows' own
+// register) provides row-correct show/dark; overlay_y, the grid flags and
+// the (dead) smoothing weights keep the row-aligned yy_s.
 wire [9:0] cy_next = (cy == 10'd524) ? 10'd0 : cy + 10'd1;
-wire [9:0] cy_addr = ({1'b0, cx} >= NATIVE_LINE - 22) ? cy_next : cy;
-// the scanline flags are sampled with rgb_pre, 11 clocks after the addresses,
-// so they come from the row showing then; sl_rows registers its row counter,
-// costing one more clock, hence 12
 wire [9:0] cy_flag = ({1'b0, cx} >= NATIVE_LINE - 12) ? cy_next : cy;
-wire [7:0] ysel_pic = (cy_addr >= 10'd480) ? 8'd159 : cy_addr / 3;
+// address-block line counter: one advance per row, three rows per line,
+// holding the last line below the picture, reset for row 0. It fires at
+// cx == 839 - 1 so the new line is already up for the first address cycle.
+reg [1:0] rcnt_a = 2'd0;
+reg [7:0] yy_a = 8'd0;
+always @(posedge clk_pixel) begin
+    if ({1'b0, cx} == NATIVE_LINE - 23) begin
+        if (cy == 10'd524) begin yy_a <= 8'd0; rcnt_a <= 2'd0; end
+        else if (yy_a == 8'd159) begin yy_a <= 8'd159; rcnt_a <= rcnt_a + 2'd1; end
+        else if (rcnt_a == 2'd2) begin yy_a <= yy_a + 8'd1; rcnt_a <= 2'd0; end
+        else rcnt_a <= rcnt_a + 2'd1;
+    end
+end
+wire [7:0] ysel = overlay ? yy_s : (sm_rd_b ? yb_s : yy_a);
 
 // smoothing: the frame buffer is read for line ysel and for yb_s, one clock each in turn
 localparam LINES = 160;       // lines of the picture
@@ -225,7 +236,6 @@ wire [1:0] sm_mode;
 wire sm_rd_b;
 wire [23:0] sm_rgb;
 reg [7:0] yb_s;               // the neighbour line to blend with (smoothing is compiled out)
-wire [7:0] ysel = overlay ? yy_s : (sm_rd_b ? yb_s : ysel_pic);
 wire [7:0] xx_ov;             // xx, SM_LAT clocks old
 assign mem_portB_addr = ysel * WIDTH + xx;
 assign overlay_x = xx_ov;

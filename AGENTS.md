@@ -29,8 +29,10 @@ gw_sh build.tcl console138k                       # standard 720p60 bitstream
 TANGCORE_VARIANT=hz120 gw_sh build.tcl console138k  # 480p120 bitstream (load as gbatang_120hz.bin)
 ```
 
-The RTL sees the variant through `src/variant/<variant>/variant.vh` (on the include path):
-`HZ120` is defined for hz120 and nowhere else. `src/pll/pll_74_hz120.v` (54 MHz) replaces
+The RTL sees the variant through `variant.vh`: `build.tcl` copies
+`src/variant/<variant>/variant.vh` to `src/common/variant.vh` (on the include
+path, like the other shared headers; `HZ120` is defined for hz120 and nowhere
+else; the copy is git-ignored). `src/pll/pll_74_hz120.v` (54 MHz) replaces
 `src/pll/pll_74.v` (74.25 MHz) in the hz120 build. CI:
 
 ```sh
@@ -72,7 +74,9 @@ The top halts the GBA (`frame_halt`, `core_hold`) on the first vblank trigger an
 
 The video benches (`scanlines`, `framelock`, `audio`, `video_fx`) run for both variants:
 `sh sim/<bench>/run.sh [standard|hz120|both]` (default `both`; the `tb_*` module-level and
-shared-logic benches run once). At 120 Hz the GBA picture is a full-bleed 3x (240x160 to
+shared-logic benches run once). Each `run.sh` materialises `src/common/variant.vh` for the
+variant it is running (same file `build.tcl` generates) and compiles with `-I`
+on `src/common`; do not run two variants concurrently in one checkout. At 120 Hz the GBA picture is a full-bleed 3x (240x160 to
 720x480), so `core_config[21]` (Full/Integer) changes nothing; the `video_config[21:20]` BFI
 modes are covered by `tb_gba_scaler_hz120`.
 

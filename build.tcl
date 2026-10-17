@@ -23,6 +23,12 @@ if {$variant eq "hz120" && $dev ne "console138k"} {
 }
 puts "TangCore variant: $variant"
 
+# The RTL sees the variant through variant.vh (HZ120 defined for hz120,
+# empty for standard). It lives in src/common (on the include path, like the
+# other shared headers): build.tcl copies it there from src/variant/<variant>
+# before the build. Git-ignored.
+file copy -force "src/variant/${variant}/variant.vh" "src/common/variant.vh"
+
 if {$dev eq "console60k" || $dev eq "mega60k"} {
    set_device GW5AT-LV60PG484AC1/I0 -device_version B
    if {$dev eq "console60k"} {
@@ -147,7 +153,7 @@ add_file -type verilog "src/sound/gba_sound_dma.v"
 
 set_option -synthesis_tool gowinsynthesis
 set_option -top_module gbatang_top
-set_option -include_path {"src/common" "src/variant/${variant}"}
+set_option -include_path {"src/common"}
 set_option -verilog_std sysv2017
 set_option -vhdl_std vhd2008
 set_option -ireg_in_iob 1

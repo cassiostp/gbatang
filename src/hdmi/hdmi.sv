@@ -1,6 +1,9 @@
 // Implementation of HDMI Spec v1.4a
 // By Sameer Puri https://github.com/sameer
 
+// The build variant (standard 720p60 / hz120 480p120): src/common/variant.vh,
+// materialised by build.tcl (Gowin) or sim/*/run.sh (iverilog) from
+// src/variant/<variant>/variant.vh (HZ120 defined for hz120, empty otherwise).
 `include "variant.vh"
 
 module hdmi 

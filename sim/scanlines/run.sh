@@ -13,18 +13,26 @@
 set -e
 cd "$(dirname "$0")"
 RTL=../../src
-VSTD=../../src/variant/standard
-VHZ=../../src/variant/hz120
+# The build variant: run.sh materialises src/common/variant.vh (git-ignored,
+# as build.tcl does) before compiling, and compiles with -I on src/common, so
+# the RTL and the testbenches see the same variant.vh Gowin sees. Do not run
+# two variants concurrently in one checkout.
+set_variant() {
+    cp -f "$RTL/variant/$1/variant.vh" "$RTL/common/variant.vh"
+}
+VINCL="$RTL/common"
 IV="docker run --rm --name r6hz120vgba_scan --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/scanlines tangcore-iv:1"
 case "${1:-both}" in
     standard|both)
-        $IV sh -c 'iverilog -g2012 -o tb_scanlines.out tb_scanlines.v '"$RTL"'/scanlines.v && vvp tb_scanlines.out'
-        $IV sh -c 'iverilog -g2012 -o tb_gba_scaler.out -I '"$VSTD"' tb_gba_scaler.v hdmi_stub.v gba_stubs.v '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v && vvp tb_gba_scaler.out'
+        set_variant standard
+        $IV sh -c 'iverilog -g2012 -I '"$VINCL"' -o tb_scanlines.out tb_scanlines.v '"$RTL"'/scanlines.v && vvp tb_scanlines.out'
+        $IV sh -c 'iverilog -g2012 -I '"$VINCL"' -o tb_gba_scaler.out tb_gba_scaler.v hdmi_stub.v gba_stubs.v '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v && vvp tb_gba_scaler.out'
         ;;
 esac
 case "${1:-both}" in
     hz120|both)
-        $IV sh -c 'iverilog -g2012 -o tb_gba_scaler_hz120.out -I '"$VHZ"' tb_gba_scaler_hz120.v hdmi_stub.v gba_stubs.v '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v && vvp tb_gba_scaler_hz120.out'
-        $IV sh -c 'iverilog -g2012 -o tb_textdisp.out -I '"$VHZ"' tb_textdisp.v '"$RTL"'/iosys/textdisp.v && vvp tb_textdisp.out'
+        set_variant hz120
+        $IV sh -c 'iverilog -g2012 -I '"$VINCL"' -o tb_gba_scaler_hz120.out tb_gba_scaler_hz120.v hdmi_stub.v gba_stubs.v '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v && vvp tb_gba_scaler_hz120.out'
+        $IV sh -c 'iverilog -g2012 -I '"$VINCL"' -o tb_textdisp.out tb_textdisp.v '"$RTL"'/iosys/textdisp.v && vvp tb_textdisp.out'
         ;;
 esac

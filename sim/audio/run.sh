@@ -22,12 +22,14 @@ cd "$(dirname "$0")"
 RTL=../../src
 SHADOW=$PWD/shadow
 python3 mkshadow.py "$RTL" "$SHADOW"
+# See sim/scanlines/run.sh: the variant header is materialised, not -I'd.
+# Do not run two variants concurrently in one checkout.
 IV="docker run --rm --name r6hz120vgba_audio --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/audio tangcore-iv:1"
 run_variant() {
-    VDIR=$1
+    cp -f "$RTL/variant/$1/variant.vh" "$RTL/common/variant.vh"
     OUT=$2
     LOG=$3
-    $IV sh -c 'iverilog -g2012 -o '"$OUT"' -I shadow -I '"$VDIR"' tb_audio_hold.v \
+    $IV sh -c 'iverilog -g2012 -o '"$OUT"' -I shadow -I ../../src/common tb_audio_hold.v \
         shadow/gba_sound.v shadow/gba_sound_ch1.v \
         shadow/gba_sound_ch3.v shadow/gba_sound_ch4.v \
         shadow/gba_sound_dma.v shadow/eprocreg_gba.sv \
@@ -37,11 +39,11 @@ run_variant() {
 }
 case "${1:-both}" in
     standard|both)
-        run_variant ../../src/variant/standard tb_audio_hold_std.out audio_std.log
+        run_variant standard tb_audio_hold_std.out audio_std.log
         ;;
 esac
 case "${1:-both}" in
     hz120|both)
-        run_variant ../../src/variant/hz120 tb_audio_hold_hz120.out audio_hz120.log
+        run_variant hz120 tb_audio_hold_hz120.out audio_hz120.log
         ;;
 esac

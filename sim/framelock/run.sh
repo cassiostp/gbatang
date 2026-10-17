@@ -24,33 +24,37 @@
 set -e
 cd "$(dirname "$0")"
 RTL=../../src
-VSTD=../../src/variant/standard
-VHZ=../../src/variant/hz120
+# See sim/scanlines/run.sh: the variant header is materialised and -I'd.
+# Do not run two variants concurrently in one checkout.
+set_variant() {
+    cp -f "$RTL/variant/$1/variant.vh" "$RTL/common/variant.vh"
+}
+VINCL="$RTL/common"
 IV="docker run --rm --name r6hz120vgba_framelock --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/framelock tangcore-iv:1"
 HDMI="hdmi_frame_stub.v"
 run_clocks() {
-    VDIR=$1
+    set_variant $1
     OUT=$2
-    $IV sh -c 'iverilog -g2012 -o '"$OUT"'_138k.out -I '"$VDIR"' tb_frame_lock.v prim_stubs.v '"$HDMI"' \
+    $IV sh -c 'iverilog -g2012 -o '"$OUT"'_138k.out tb_frame_lock.v -I '"$VINCL"' prim_stubs.v '"$HDMI"' \
         '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v \
         -DCLK16H=29.7369 -DCLKP50H=9.9133 -DEXPECT_LOCK=1 -DSTD=0 \
         && vvp '"$OUT"'_138k.out' 2>&1 | tail -40
-    $IV sh -c 'iverilog -g2012 -o '"$OUT"'_60k.out -I '"$VDIR"' tb_frame_lock.v prim_stubs.v '"$HDMI"' \
+    $IV sh -c 'iverilog -g2012 -o '"$OUT"'_60k.out tb_frame_lock.v -I '"$VINCL"' prim_stubs.v '"$HDMI"' \
         '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v \
         -DCLK16H=29.7289 -DCLKP50H=9.9096 -DEXPECT_LOCK=1 -DSTD=0 \
         && vvp '"$OUT"'_60k.out' 2>&1 | tail -15
-    $IV sh -c 'iverilog -g2012 -o '"$OUT"'_slow.out -I '"$VDIR"' tb_frame_lock.v prim_stubs.v '"$HDMI"' \
+    $IV sh -c 'iverilog -g2012 -o '"$OUT"'_slow.out tb_frame_lock.v -I '"$VINCL"' prim_stubs.v '"$HDMI"' \
         '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v \
         -DCLK16H=29.8507 -DCLKP50H=9.9502 -DEXPECT_LOCK=0 -DSTD=0 \
         && vvp '"$OUT"'_slow.out' 2>&1 | tail -15
 }
 case "${1:-both}" in
     standard|both)
-        run_clocks "$VSTD" tb_std
+        run_clocks standard tb_std
         ;;
 esac
 case "${1:-both}" in
     hz120|both)
-        run_clocks "$VHZ" tb_hz120
+        run_clocks hz120 tb_hz120
         ;;
 esac

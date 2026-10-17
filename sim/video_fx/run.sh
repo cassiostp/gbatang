@@ -20,8 +20,12 @@ cd "$(dirname "$0")"
 RTL=../../src
 HDMI=../scanlines/hdmi_stub.v
 STUBS=../scanlines/gba_stubs.v
-VSTD=../../src/variant/standard
-VHZ=../../src/variant/hz120
+# See sim/scanlines/run.sh: the variant header is materialised and -I'd.
+# Do not run two variants concurrently in one checkout.
+set_variant() {
+    cp -f "$RTL/variant/$1/variant.vh" "$RTL/common/variant.vh"
+}
+VINCL="$RTL/common"
 IV="docker run --rm --name r6hz120vgba_videofx --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/video_fx tangcore-iv:1"
 if command -v python3 >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
     sh prep.sh
@@ -34,20 +38,21 @@ sed -e 's/input reg  \[7:0\] kbd_data/input [7:0] kbd_data/' \
     $RTL/iosys/iosys_bl616.v > build/iosys_sim.v
 
 run_shared() {
-    $IV sh -c 'iverilog -g2012 -DSIM -o tb_iosys_video_config.out tb_iosys_video_config.v build/iosys_sim.v '"$RTL"'/iosys/uart_fixed.v && vvp tb_iosys_video_config.out'
-    $IV sh -c 'iverilog -g2012 -o tb_video_fx.out tb_video_fx.v '"$RTL"'/video_fx.v '"$RTL"'/scanlines.v && vvp tb_video_fx.out'
+    $IV sh -c 'iverilog -g2012 -I '"$VINCL"' -DSIM -o tb_iosys_video_config.out tb_iosys_video_config.v build/iosys_sim.v '"$RTL"'/iosys/uart_fixed.v && vvp tb_iosys_video_config.out'
+    $IV sh -c 'iverilog -g2012 -I '"$VINCL"' -o tb_video_fx.out tb_video_fx.v '"$RTL"'/video_fx.v '"$RTL"'/scanlines.v && vvp tb_video_fx.out'
 }
 run_fx() {
-    VDIR=$1
-    $IV sh -c 'iverilog -g2012 -o tb_gba_fx.out -I '"$VDIR"' tb_gba_fx.v '"$HDMI"' '"$STUBS"' '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v && vvp tb_gba_fx.out'
+    set_variant $1
+    $IV sh -c 'iverilog -g2012 -I '"$VINCL"' -o tb_gba_fx.out tb_gba_fx.v '"$HDMI"' '"$STUBS"' '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v && vvp tb_gba_fx.out'
 }
 case "${1:-both}" in
     standard|both)
+        set_variant standard
         run_shared
-        $IV sh -c 'iverilog -g2012 -o tb_gba_regress.out -I '"$VSTD"' tb_gba_regress.v '"$HDMI"' '"$STUBS"' '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v \
+        $IV sh -c 'iverilog -g2012 -I '"$VINCL"' -o tb_gba_regress.out tb_gba_regress.v '"$HDMI"' '"$STUBS"' '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v \
             '"$RTL"'/video_fx.v build/gba2hdmi_base.sv build/scanlines_base.v && vvp tb_gba_regress.out'
-        run_fx "$VSTD"
-        $IV sh -c 'iverilog -g2012 -o tb_smooth_regress.out -I '"$VSTD"' tb_smooth_regress.v '"$HDMI"' '"$STUBS"' '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v \
+        run_fx standard
+        $IV sh -c 'iverilog -g2012 -I '"$VINCL"' -o tb_smooth_regress.out tb_smooth_regress.v '"$HDMI"' '"$STUBS"' '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v \
             '"$RTL"'/video_fx.v build/gba2hdmi_smoff.sv build/smooth_base.v && vvp tb_smooth_regress.out'
         if command -v python3 >/dev/null 2>&1; then
             python3 -I model.py check gba_fx.log
@@ -59,7 +64,7 @@ case "${1:-both}" in
 esac
 case "${1:-both}" in
     hz120|both)
-        run_fx "$VHZ"
+        run_fx hz120
         if command -v python3 >/dev/null 2>&1; then
             python3 -I model.py check gba_fx.log
             # pitch 3, width 719: the picture's first column carries pic=0

@@ -9,6 +9,10 @@
 # not, so run.sh compiles a sim-only copy with it softened.
 set -e
 RTL=../../src
+# textdisp.v includes the build-variant header, materialised here (git-ignored,
+# as build.tcl does for Gowin): the save path is variant-independent, so this
+# bench always uses the standard variant.
+cp -f $RTL/variant/standard/variant.vh $RTL/common/variant.vh
 sed -e 's/input reg  \[7:0\] kbd_data/input [7:0] kbd_data/' \
     -e 's/^\( *\)kbd_data <= rx_data;/\1;                       \/\/ sim: kbd path idle/' \
     $RTL/iosys/iosys_bl616.v > iosys_sim.v
@@ -77,19 +81,19 @@ run_tb() {                                      # one testbench by name
     case "$1" in
       tb_saveram)
         run tb_saveram.out \
-          "tb_saveram.v iosys_sim.v $SIM/iosys/uart_fixed.v $SIM/iosys/textdisp.v -I$SIM/variant/standard $SIM/iosys/gowin_dpb_menu.v dpb_sim.v" ;;
+          "-I$SIM/common tb_saveram.v iosys_sim.v $SIM/iosys/uart_fixed.v $SIM/iosys/textdisp.v $SIM/iosys/gowin_dpb_menu.v dpb_sim.v" ;;
       tb_sdram_save)
         run tb_sdram_save.out \
           "tb_sdram_save.v $SIM/memory/sdram_gba.v sdram_model.v" ;;
       tb_saveram_sdram)
         run tb_saveram_sdram.out \
-          "tb_saveram_sdram.v iosys_sim.v $SIM/iosys/uart_fixed.v $SIM/iosys/textdisp.v -I$SIM/variant/standard $SIM/iosys/gowin_dpb_menu.v dpb_sim.v $SIM/memory/sdram_gba.v sdram_model.v" ;;
+          "-I$SIM/common tb_saveram_sdram.v iosys_sim.v $SIM/iosys/uart_fixed.v $SIM/iosys/textdisp.v $SIM/iosys/gowin_dpb_menu.v dpb_sim.v $SIM/memory/sdram_gba.v sdram_model.v" ;;
       tb_saveram_eeprom)
         run tb_saveram_eeprom.out \
-          "tb_saveram_eeprom.v iosys_sim.v $SIM/iosys/uart_fixed.v $SIM/iosys/textdisp.v -I$SIM/variant/standard $SIM/iosys/gowin_dpb_menu.v dpb_sim.v $SIM/memory/gba_eeprom.sv $SIM/memory/mem_eeprom_sim.v" ;;
+          "-I$SIM/common tb_saveram_eeprom.v iosys_sim.v $SIM/iosys/uart_fixed.v $SIM/iosys/textdisp.v $SIM/iosys/gowin_dpb_menu.v dpb_sim.v $SIM/memory/gba_eeprom.sv $SIM/memory/mem_eeprom_sim.v" ;;
       tb_gba_saves)
         run tb_gba_saves.out \
-          "-DVERILATOR -I$SIM/common tb_gba_saves.v iosys_sim.v $SIM/iosys/uart_fixed.v $SIM/iosys/textdisp.v -I$SIM/variant/standard $SIM/iosys/gowin_dpb_menu.v dpb_sim.v sdram_gba_sim.v sdram_model.v $SIM/memory/gba_memory.sv $SIM/memory/gba_eeprom.sv $SIM/memory/mem_eeprom_sim.v $SIM/common/sim_spram_be.sv" ;;
+          "-DVERILATOR -I$SIM/common tb_gba_saves.v iosys_sim.v $SIM/iosys/uart_fixed.v $SIM/iosys/textdisp.v $SIM/iosys/gowin_dpb_menu.v dpb_sim.v sdram_gba_sim.v sdram_model.v $SIM/memory/gba_memory.sv $SIM/memory/gba_eeprom.sv $SIM/memory/mem_eeprom_sim.v $SIM/common/sim_spram_be.sv" ;;
       tb_gba_memstream)
         run tb_gba_memstream.out \
           "-DVERILATOR -I$SIM/common tb_gba_memstream.v sdram_gba_dbg.v sdram_model.v $SIM/memory/gba_memory.sv $SIM/memory/gba_eeprom.sv $SIM/memory/mem_eeprom_sim.v $SIM/common/sim_spram_be.sv" ;;

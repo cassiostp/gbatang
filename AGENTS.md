@@ -1,0 +1,64 @@
+Read the project-wide rules first: https://github.com/cassiostp/tangcore/blob/main/AGENTS.md
+
+# gbatang — GBA core
+
+GBA for the Tang Console 138K/60K. Started as a port of `MiSTer-devel/GBA_MiSTer`, now about half-rewritten (traditional FPGA-replica design at 16 MHz, `risclite/ARM9-compatible-soft-CPU-core` CPU, rewritten memory system).
+
+## Layout
+
+- Top: `src/gbatang_top.sv` (`module gbatang_top`); CPU/GPU/memory under `src/` and `src/memory/`.
+- Video: 138K uses BRAM `src/gba2hdmi.sv` + `src/fb.v`; 60K uses DDR3 `src/gba2hdmi_ddr3.sv` + `src/ddr3_framebuffer.v` + `src/ddr3_memory_interface/`. HDMI core `src/hdmi/hdmi.sv`; helpers `src/scanlines.v`, `src/video_fx.v`, `src/smooth.v`.
+- Memory: `src/memory/sdram_gba.v` (+ `rv_sdram_adapter.v`, `gba_memory.sv`, `mem_eeprom/iwram.v`); 60K only adds the DDR3 interface.
+- iosys: `src/iosys/iosys_bl616.v` is the build's copy (plus `uart_fixed.v`, `uart_fast.v`, `textdisp.v`, `gowin_dpb_menu.v`). `iosys_picorv32.v` exists but is not in `build.tcl`.
+- PLLs: `src/pll/` (138K: `pll_27/33/74/12.v`), `src/plla/` (60K: plus `pll_ddr3/hdmi`, `pll_mDRP_intf.v`).
+- Board wrappers `src/boards/`: `console60k.v`/`console138k.v` (USB1+USB2, `DDR3_FRAMEBUFFER` only on 60K), `mega60k.v`/`mega138k[v].v`/`mega138kpro.v`, `verilator_sim.v`.
+
+## Building
+
+```tcl
+gw_sh build.tcl <device>   # console60k mega60k console138k mega138k mega138kpro
+```
+
+`build.tcl` selects the CST/SDC/PLL/video stack per family; there is no controller argument. CI:
+
+```sh
+gh workflow run cores.yml -R cassiostp/tangcore --ref ci/core-builds -f core=gbatang -f ref=<branch> -f board=console138k
+```
+
+Fails on any setup/hold violation.
+
+## Clocks and constraints
+
+- 138K `src/gbatang.sdc`: `clk16` ~16.8125 MHz, `clk67 = clk16 x4`, `clk50 = clk16 x3`; HDMI `hclk5/hclk` lines are commented out.
+- 60K `src/gbatang_ddr.sdc`: same `clk16/clk67/clk50` at ~16.81875 MHz, plus DDR3 `clk4x` ~297 MHz and `clk1x` ~74.25 MHz with `set_clock_groups -asynchronous` between `clk50/clk4x/clk1x`.
+- Producers: `pll_27` (50 -> 27 MHz), `pll_33` (27 -> `clk50/clk16/clk67`), `pll_12` (12 MHz USB); 138K `pll_74` in `gba2hdmi.sv`, 60K `pll_ddr3`/`pll_hdmi` in the DDR3 framebuffer.
+
+## Native-rate lock
+
+HDMI uses a 1657-pixel native line (`.NATIVE_FRAME_WIDTH(1657)` in `src/gba2hdmi.sv` and `src/ddr3_framebuffer.v`); `std_timing = 1` selects the standard 1650 line. `video_std_timing` is tied `1'b0` in `src/gbatang_top.sv`, so the build is native-only.
+The top halts the GBA (`frame_halt`, `core_hold`) on the first vblank trigger and releases at HDMI `RELEASE_ROW = 515`; `core_hold` gates CPU/GPU/DMA/timers/sound.
+
+## Firmware link
+
+- Core ID 3 (`CORE_ID(3)` in `src/gbatang_top.sv`).
+- Save channel `SAVE_IF=1, SAVE_AW=18, SAVE_SYNC=0` (128 KB window): `sv_addr[17:9]` block, EEPROM/SRAM/Flash512K/Flash1M selected by `config_backup_type`, `sv_rtc` overflow bit, `sv_core_we` dirty; plus `FAST_UART=1` for the negotiated 8 Mbaud ROM stream (`0x15/0x16`, CRC-verified).
+- `core_config` bits used: `[17]` menu pause, `[6]` freeze, `[5:0]` DDR3 prefetch delay, `[16]` scanlines, `[19:18]` darkness, `[20]` thick, `[21]` out; `video_config` drives `video_fx.v`/`smooth.v`.
+- `iosys_bl616.v` is one of six divergent copies (`cassiostp/tangcore#30`): a fix to one usually belongs in the others.
+
+## Simulations (`sim/*/README.md` says how to run where it exists; iverilog)
+
+- `audio`: real `gba_sound` under a `core_hold` enable pattern (pitch, mixer-hold, DMA ticks, no-click).
+- `cosim`: Verilator `iosys_bl616`+`sdram_gba` + chip for firmware co-sim (`firmware host/README.md` RTL backend).
+- `fastuart`: `FAST_UART 0x15/0x16` at wire level, 8 Mbaud + CRC + watchdog.
+- `framelock`: real `gba2hdmi` at 1657 vs the GPU-timing model + top halt copy, 138K/60K must lock.
+- `gpio_rtc`: S-3511A bit-bang + solar + save sector; `0x080000C4/C6/C8` decode.
+- `saveram`: end-to-end `0x06/0x11/0x0B/0x12/0x0A` per backup type plus SDRAM/EEPROM/memstream benches.
+- `scanlines`: row generator/darkening plus whole-frame `gba2hdmi` vs model.
+- `tmds`: 2-stage `tmds_channel` vs the git-history direct version over ~2.5M clocks.
+- `video_fx`: `0x13`, `video_fx` vs `model.py`, git-history regress with filters off, FX and smoothing checks.
+
+## Traps
+
+- The 60K build swaps the whole video stack (no `fb.v`/`gba2hdmi.sv`/`scanlines.v`/`video_fx.v`/`smooth.v`/`pll_74`, adds the DDR3 stack); only `console*` boards define USB.
+- HDMI `hclk5/hclk` constraints are commented out in both SDCs; multicycle `4/3` `clk67<->clk16` and `3/2` `clk16<->clk50` plus the GPU/VRAM `set_false_path` carry the timing.
+- `video_std_timing` is hard `0`; the "needs the PLL fix" comment at `gbatang_top.sv` is still in the tree.

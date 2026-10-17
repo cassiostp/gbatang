@@ -206,8 +206,8 @@ always @(posedge clk_pixel) yy_s <= sl_geom ? sl_yy : yy;
 // FX_LAT + SM_LAT + 2 = 22 clocks after its address cycle, and the 21
 // address cycles before cx == 0 belong to the row being drawn. The line for
 // those addresses is the coming row's, not the current one: yy_a counts it,
-// advancing at the address-block start (cx == NATIVE_LINE - 22) with the same
-// 3-rows phasing sl_rows uses (a clocked counter keeps the frame-buffer
+// advancing one clock before the address-block start (cx == NATIVE_LINE - 22)
+// with the same 3-rows phasing sl_rows uses (a clocked counter keeps the
 // address path shallow; yy/ycnt would give the fractional stagger). The
 // scanline flags are sampled with rgb_pre, 11 clocks after the addresses, so
 // a second sl_rows on cy_flag (the row showing then, plus sl_rows' own

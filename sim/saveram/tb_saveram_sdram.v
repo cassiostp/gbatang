@@ -282,6 +282,30 @@ initial begin
     expect_dirty;
     sdram_check_byte(17'h02000, 8'hC7);
 
+    $display("T5 start t=%0t", $time);
+    // 5. a lost save acknowledgement inside the engine (a toggle dropped on
+    //    the clk16/clk67 crossing) must not wedge the link: the block in
+    //    flight is abandoned, but a core-ID poll is answered and the next
+    //    dump is byte-exact again. Pre-fix this parked TX in SEND_SAVE_BLK.
+    fork
+        begin
+            request_dump(16'd3);
+        end
+        begin
+            wait (iosys.send_state == 6 && iosys.send_state_next == 10);  // block header
+            repeat (40000) @(negedge mclk) iosys.sv_data_rdy = 1'b0;     // eat every ready
+        end
+    join
+    #1_000_000;                                   // past the abandon + resync
+    rcnt = ncap;                                  // drop the truncated frame's bytes
+    send_hdr(16'd1, 8'h01);                       // core ID still answered
+    expect_byte(8'hAA); expect_byte(8'h00); expect_byte(8'h02);
+    expect_byte(8'h01); expect_byte(8'h03);
+    request_dump(16'd3);                          // and dumps work again
+    dump_header(16'd3);
+    for (k = 0; k < 512; k = k + 1)
+        expect_byte((k == 16'h36) ? 8'h5A : (k == 16'h37) ? 8'h6B : pat(8'h20, k));
+
     if (errs == 0) $display("tb_saveram_sdram: PASS");
     else $fatal(1, "tb_saveram_sdram: FAIL, %0d errors", errs);
     $finish;

@@ -1,11 +1,12 @@
 // Channel 3 is Wave Output
 module gba_sound_ch3(clk, reset, gb_on, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_bus_rnw, gb_bus_ena, gb_bus_done, gb_bus_acc, gb_bus_be, gb_bus_rst, 
-            sound_out, sound_on);
+            sound_out, sound_on, ce);
     `include "pproc_bus_gba.sv"
     `include "preg_gba_sound.sv"
     input                      clk;
     input                      reset;
     input                      gb_on;
+    input                      ce;           // 0: hold counters and output (register writes still apply)
     
     `GB_BUS_PORTS_DECL;
     
@@ -218,14 +219,15 @@ module gba_sound_ch3(clk, reset, gb_on, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_
                 bank_play <= REG_SOUND3CNT_L_Wave_RAM_Bank_Number;
             
             if (ch_on) begin
+            if (ce) begin
                 // cpu cycle trigger
                 soundcycles_freq <= soundcycles_freq + 1;
                 soundcycles_length <= soundcycles_length + 1;
                 
-                if (soundcycles_freq >= 2) begin		// freq / wavetable
-                    freq_cnt <= freq_cnt + 1;
-                    soundcycles_freq <= soundcycles_freq - 2;
-                end 
+                if (soundcycles_freq >= 1) begin		// freq / wavetable: one
+                    freq_cnt <= freq_cnt + 1;			// step every 2 PSG cycles
+                    soundcycles_freq <= soundcycles_freq - 1;
+                end
                 
                 freq_check <= 2048 - freq_divider;
                 
@@ -268,6 +270,7 @@ module gba_sound_ch3(clk, reset, gb_on, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_
                     sound_out <= {16{1'b0}};
                     sound_on <= 1'b0;
                 end
+            end
             end else begin
                 sound_out <= {16{1'b0}};
                 sound_on <= 1'b0;

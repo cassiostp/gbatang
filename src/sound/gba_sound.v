@@ -1,11 +1,27 @@
 
-module gba_sound(clk, gb_on, reset, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_bus_rnw, gb_bus_ena, gb_bus_done, gb_bus_acc, gb_bus_be, gb_bus_rst, 
+module gba_sound(clk, gb_on, reset, ce, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_bus_rnw, gb_bus_ena, gb_bus_done, gb_bus_acc, gb_bus_be, gb_bus_rst, 
         timer0_tick, timer1_tick, sound_dma_req, sound_out_left, sound_out_right, debug_fifocount);
     `include "pproc_bus_gba.sv"
     `include "preg_gba_sound.sv"
     input                      clk;
     input                      gb_on;
     input                      reset;
+    input                      ce;           // PSG step enable: 0 holds all four channels (bus regs stay live)
+
+    // All PSG timing (note pitch, sweep, envelope, length) derives from
+    // the 4.194304 MHz GB clock, clk/4 here. Step the four channels on a
+    // 1-in-4 enable so their counters count 4 MHz cycles: ch1/2 then play
+    // at 131072/(2048-N) Hz, ch3 samples at 2097152/(2048-N) Hz, the
+    // envelope/length/sweep ticks run at 64/256/128 Hz. The divider
+    // freezes with ce, so a frame halt holds PSG phase as before.
+    reg [1:0]                  psg_div;
+    wire                       psg_ce = ce & (psg_div == 2'd0);
+    always @(posedge clk) begin
+        if (reset)
+            psg_div <= 2'd0;
+        else if (ce)
+            psg_div <= psg_div + 2'd1;
+    end
     
     `GB_BUS_PORTS_DECL;
     
@@ -192,6 +208,7 @@ module gba_sound(clk, gb_on, reset, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_bus_
         .clk(clk),
         .reset(reset),
         .gb_on(gbsound_on),
+        .ce(psg_ce),
         `GB_BUS_PORTS_INST,
         .sound_out(sound_out_ch1),
         .sound_on(sound_on_ch1)
@@ -215,6 +232,7 @@ module gba_sound(clk, gb_on, reset, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_bus_
         .clk(clk),
         .reset(reset),
         .gb_on(gbsound_on),
+        .ce(psg_ce),
         `GB_BUS_PORTS_INST,
         .sound_out(sound_out_ch2),
         .sound_on(sound_on_ch2)
@@ -224,6 +242,7 @@ module gba_sound(clk, gb_on, reset, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_bus_
         .clk(clk),
         .reset(reset),
         .gb_on(gbsound_on),
+        .ce(psg_ce),
         `GB_BUS_PORTS_INST,
         .sound_out(sound_out_ch3),
         .sound_on(sound_on_ch3)
@@ -233,6 +252,7 @@ module gba_sound(clk, gb_on, reset, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_bus_
         .clk(clk),
         .reset(reset),
         .gb_on(gbsound_on),
+        .ce(psg_ce),
         `GB_BUS_PORTS_INST,
         .sound_out(sound_out_ch4),
         .sound_on(sound_on_ch4)

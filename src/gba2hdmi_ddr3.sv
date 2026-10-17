@@ -15,6 +15,8 @@ module gba2hdmi_ddr3 (
     input [7:0] pixel_y,
     input pixel_we,
     input freeze,        // freeze video output (for debug)
+    input std_timing,    // 1: standard 60 Hz 720p timing, 0: native GBA rate (see hdmi.sv)
+    output rel_toggle,   // frame lock: toggles once per HDMI frame at RELEASE_ROW
 
     // audio input
     input [15:0] sound_left,
@@ -133,6 +135,8 @@ ddr3_framebuffer #(
     .fb_vsync(vsync),
     .fb_we(overlay ? overlay_we : pixel_we),
     .fb_data(overlay ? overlay_data : pixel_data),
+    .std_timing(std_timing),
+    .rel_toggle(rel_toggle),
     
     .sound_left(sound_left),
     .sound_right(sound_right),

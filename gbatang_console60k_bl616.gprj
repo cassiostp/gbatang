@@ -17,6 +17,9 @@
         <File path="src/ddr3_memory_interface/ddr3_memory_interface.v" type="file.verilog" enable="1"/>
         <File path="src/fb.v" type="file.verilog" enable="1"/>
         <File path="src/gba2hdmi.sv" type="file.verilog" enable="1"/>
+        <File path="src/scanlines.v" type="file.verilog" enable="1"/>
+        <File path="src/video_fx.v" type="file.verilog" enable="1"/>
+        <File path="src/smooth.v" type="file.verilog" enable="1"/>
         <File path="src/gba2hdmi_ddr3.sv" type="file.verilog" enable="1"/>
         <File path="src/gbatang_top.sv" type="file.verilog" enable="1"/>
         <File path="src/gpu/gba_drawer_merge.v" type="file.verilog" enable="1"/>
@@ -51,6 +54,7 @@
         <File path="src/memory/gba_dma_module.sv" type="file.verilog" enable="1"/>
         <File path="src/memory/gba_eeprom.sv" type="file.verilog" enable="1"/>
         <File path="src/memory/gba_flash_sram.sv" type="file.verilog" enable="1"/>
+        <File path="src/memory/gba_gpio_rtc.v" type="file.verilog" enable="1"/>
         <File path="src/memory/gba_memory.sv" type="file.verilog" enable="1"/>
         <File path="src/memory/mem_eeprom.v" type="file.verilog" enable="1"/>
         <File path="src/memory/mem_iwram.v" type="file.verilog" enable="1"/>

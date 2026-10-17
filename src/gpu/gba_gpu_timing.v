@@ -1,5 +1,5 @@
 // Generate timing signals for GPU using cycle counting
-module gba_gpu_timing(fclk, mclk, reset, lockspeed, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_bus_rnw, gb_bus_ena, gb_bus_done, gb_bus_acc, gb_bus_be, gb_bus_rst, 
+module gba_gpu_timing(fclk, mclk, reset, lockspeed, pause, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_bus_rnw, gb_bus_ena, gb_bus_done, gb_bus_acc, gb_bus_be, gb_bus_rst, 
     //new_cycles, new_cycles_valid, 
     IRP_HBlank, IRP_VBlank, IRP_LCDStat, vram_block_mode, vram_blocked, videodma_start, videodma_stop, line_trigger, hblank_trigger, vblank_trigger, drawline, refpoint_update, newline_invsync, linecounter_drawer, pixelpos, DISPSTAT_debug);
     `include "pproc_bus_gba.sv"
@@ -9,6 +9,7 @@ module gba_gpu_timing(fclk, mclk, reset, lockspeed, gb_bus_din, gb_bus_dout, gb_
     input                  mclk;
     input                  reset;
     input                  lockspeed;
+    input                  pause;                   // 1: freeze (menu pause)
     
     `GB_BUS_PORTS_DECL;
     
@@ -126,7 +127,7 @@ module gba_gpu_timing(fclk, mclk, reset, lockspeed, gb_bus_din, gb_bus_dout, gb_
                 REG_DISPSTAT_H_Blank_flag <= 0;
                 REG_DISPSTAT_V_Blank_flag <= 0;
             
-            end else /* if (gb_on)*/ begin
+            end else if (!pause) begin
                 
                 // really required?
                 // if (forcedblank && !new_forcedblank) then

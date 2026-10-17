@@ -46,6 +46,8 @@ module ddr3_framebuffer #(
     input               fb_we,       // update a pixel and move to next pixel
     input [COLOR_BITS-1:0] fb_data,  // pixel data
     input [5:0]         ddr_prefetch_delay,    // dynamic DDR3 prefetch delay (1-63, default PREFETCH_DELAY), larger if memory pressure is higher 
+    input               std_timing,    // 1: standard 60 Hz 720p timing, 0: native GBA rate (see hdmi.sv)
+    output reg          rel_toggle,    // frame lock: toggles once per HDMI frame at RELEASE_ROW (clk_x1 domain)
 
     input [15:0]        sound_left,
     input [15:0]        sound_right,
@@ -257,11 +259,13 @@ hdmi #( .VIDEO_ID_CODE(VIDEOID),
         .AUDIO_RATE(AUDIO_OUT_RATE), 
         .AUDIO_BIT_WIDTH(AUDIO_BIT_WIDTH),
         .START_X(0),
-        .START_Y(0) )
+        .START_Y(0),
+        .NATIVE_FRAME_WIDTH(1657) )
 
 hdmi(   .clk_pixel_x5(hclk5), 
         .clk_pixel(clk_x1), 
         .clk_audio(clk_audio),
+        .std_timing(std_timing),
         .rgb(rgb), 
         .reset( ddr_rst ),
         .audio_sample_word(audio_sample_word),
@@ -271,6 +275,24 @@ hdmi(   .clk_pixel_x5(hclk5),
         .cy(cy),
         .frame_width(),
         .frame_height() );
+
+// Frame lock release: the top-level halt waits at the first GBA vblank line
+// and runs again when HDMI reaches RELEASE_ROW (same phase as the BRAM path
+// in gba2hdmi.sv: the GBA vblank remainder is 68 lines, ~225 HDMI rows).
+// Edge-triggered over a synchroniser in the top, so a late arrival waits
+// for the next frame.
+localparam RELEASE_ROW = 515;   // HDMI row whose start releases the GBA
+reg at_rel_q;
+always @(posedge clk_x1) begin
+    if (ddr_rst) begin
+        at_rel_q <= 1'b0;
+        rel_toggle <= 1'b0;
+    end else begin
+        at_rel_q <= (cy == RELEASE_ROW);
+        if ((cy == RELEASE_ROW) && !at_rel_q)
+            rel_toggle <= ~rel_toggle;
+    end
+end
 
 // Gowin LVDS output buffer
 ELVDS_OBUF tmds_bufds [3:0] (

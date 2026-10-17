@@ -55,6 +55,9 @@ if {$dev eq "console60k" || $dev eq "mega60k"} {
    # 138K uses BRAM framebuffer
    add_file -type verilog "src/fb.v"
    add_file -type verilog "src/gba2hdmi.sv"
+   add_file -type verilog "src/scanlines.v"
+   add_file -type verilog "src/video_fx.v"
+    add_file -type verilog "src/smooth.v"
  } else {
     error "Unknown device $dev"
 }
@@ -63,6 +66,7 @@ set_option -output_base_name gbatang_${dev}
 
 add_file -type verilog "src/iosys/iosys_bl616.v"
 add_file -type verilog "src/iosys/uart_fixed.v"
+add_file -type verilog "src/iosys/uart_fast.v"
 
 add_file -type verilog "src/iosys/textdisp.v"
 add_file -type verilog "src/iosys/gowin_dpb_menu.v"
@@ -104,6 +108,7 @@ add_file -type verilog "src/memory/gba_dma.v"
 add_file -type verilog "src/memory/gba_dma_module.sv"
 add_file -type verilog "src/memory/gba_eeprom.sv"
 add_file -type verilog "src/memory/gba_flash_sram.sv"
+add_file -type verilog "src/memory/gba_gpio_rtc.v"
 add_file -type verilog "src/memory/gba_memory.sv"
 add_file -type verilog "src/memory/mem_eeprom.v"
 add_file -type verilog "src/memory/mem_iwram.v"

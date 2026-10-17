@@ -1,0 +1,20 @@
+# generated co-simulation model build (see sim/cosim/)
+sim/cosim/build/
+
+# usb_hid_host microcode listing
+src/usb_hid_host_firmware/ukp.lst
+
+# frame-lock bench artefacts
+sim/framelock/*.out
+sim/framelock/*.log
+
+# fast-UART bench artefacts (generated shadow source, build outputs, waves)
+sim/fastuart/iosys_sim.v
+sim/fastuart/*.out
+sim/fastuart/*.vcd
+
+# audio-hold bench artefacts (generated shadow sources, build outputs, log)
+sim/audio/shadow/
+sim/audio/*.out
+sim/audio/*.log
+sim/audio/obj_dir/

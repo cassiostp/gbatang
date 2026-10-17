@@ -98,6 +98,14 @@ module gbatang_top (
 
 `include "pproc_bus_gba.sv"
 
+// clk16 rate in Hz, per board (pll_33 dividers in the Clocking section below):
+// the RTC timebase and the iosys UART baud derive from it.
+`ifdef DDR3_FRAMEBUFFER
+localparam CLK16_HZ = 16818750;   // 60K: 27x37.375/60
+`else
+localparam CLK16_HZ = 16812500;   // 138K: 27x67.25/108
+`endif
+
 // Clocking
 `ifndef VERILATOR
 wire clk27;         // intermediate 27Mhz clock for HDMI
@@ -126,6 +134,39 @@ wire cartram_dirty_clear;
 wire cartram_dirty;
 
 wire [31:0] core_config;
+wire [31:0] video_config;     // from iosys
+wire pause = core_config[17] & gbaon;     // menu pause, only active while the game runs
+
+// Native-rate frame lock: run the GBA at exactly the HDMI rate (59.7465 Hz
+// with the native htotal 1657). The GBA frame (280896 mclk) waits at the
+// first vblank line once it runs slightly faster than HDMI (needs the PLL
+// fix in the open questions; until then the wait never comes) and runs
+// again when HDMI reaches RELEASE_ROW in the video module. The release is
+// edge-triggered over a 3-flop synchroniser, so a late arrival waits for the
+// next frame and the phase is exact. This freezes the same gates as the menu
+// pause; the DDR3 path's pause-only audio mute is untouched, and the halt
+// never injects silence (sound keeps running, HDMI keeps sampling it).
+wire video_std_timing = 1'b0;   // 1: standard 60 Hz timing (for displays that refuse the native rate; a menu option for it may come later)
+wire rel_toggle;                // from the video module (pixel-clock domain)
+reg [2:0] rel_sync = 0;
+reg rel_lvl_q = 0;
+wire rel_pulse = rel_sync[2] ^ rel_lvl_q;   // one clk16 per HDMI frame
+reg frame_halt = 0;
+wire core_hold = pause | frame_halt;
+always @(posedge clk16) begin
+    if (!resetn || !gbaon) begin
+        rel_sync <= 3'b0;
+        rel_lvl_q <= 1'b0;
+        frame_halt <= 1'b0;
+    end else begin
+        rel_sync <= {rel_sync[1:0], rel_toggle};
+        rel_lvl_q <= rel_sync[2];
+        if (vblank_trigger)
+            frame_halt <= 1'b1;             // first vblank line, frame written: wait
+        else if (rel_pulse)
+            frame_halt <= 1'b0;             // HDMI at the release row: run
+    end
+end
 
 /* verilator public_on */
 
@@ -152,6 +193,16 @@ wire [1:0] dma_bus_acc;
 // GPU to DMA signals
 wire hblank_trigger, vblank_trigger, videodma_start, videodma_stop;
 
+`ifdef VERILATOR
+// No video module in the Verilator build to drive rel_toggle: release the
+// native-rate frame lock from vblank itself (a few clk16 per frame through
+// the synchroniser), so games run instead of halting at the first frame.
+reg rel_toggle_sim = 0;
+always @(posedge clk16)
+    if (vblank_trigger) rel_toggle_sim <= ~rel_toggle_sim;
+assign rel_toggle = rel_toggle_sim;
+`endif
+
 // sound
 wire [15:0] sound_out_left /* verilator public */, sound_out_right /* verilator public */;
 wire [1:0] sound_dma_req;
@@ -170,7 +221,7 @@ wire [3:0] IRP_Timer, IRP_DMA;
 ////////////////////////////
 
 gba_cpu cpu (
-    .clk(clk16), .rst(~gbaon), .cpu_en(cpu_en & ~halt), .cpu_restart(~gbaon), .fiq(1'b0), 
+    .clk(clk16), .rst(~gbaon), .cpu_en(cpu_en & ~halt & ~core_hold), .cpu_restart(~gbaon), .fiq(1'b0), 
     .irq(cpu_IRP), .thumb(thumb),
     .ram_abort(1'b0), .ram_rdata(ram_rdata), .rom_abort(1'b0), .rom_data(rom_data),
     .ram_addr(ram_addr), .ram_cen(ram_cen), .ram_flag(ram_be), .ram_wdata(ram_wdata),
@@ -236,7 +287,7 @@ wire [3:0] palette_oam_we;
 wire phase = ~clk16;    // 0: internal GPU work, 1: get data from CPU
 
 gba_gpu #(.FCLK_SPEED(3)) gpu (
-    .fclk(clk50), .mclk(clk16), .phase(phase), .reset(~gbaon),
+    .fclk(clk50), .mclk(clk16), .phase(phase), .reset(~gbaon), .pause(core_hold),
     `GB_BUS_PORTS_INST,
 
     // config
@@ -279,7 +330,9 @@ gba_gpu #(.FCLK_SPEED(3)) gpu (
 ////////////////////////////
 
 gba_sound sound (
-    .clk(clk16), .reset(~gbaon), .gb_on(1'b1),
+    .clk(clk16), .reset(~gbaon), .gb_on(1'b1), .ce(~core_hold),     // gb_on=0 resets the channels; the output is muted instead.
+        // ce=~core_hold: the PSG steps with the game (timers/DMA already freeze
+        // under core_hold), so halt holds the mix instead of letting it run sharp
     `GB_BUS_PORTS_INST,
     .timer0_tick(timer0_tick), .timer1_tick(timer1_tick), .sound_dma_req(sound_dma_req),
     .sound_out_left(sound_out_left), .sound_out_right(sound_out_right),
@@ -324,8 +377,98 @@ wire  [7:0] eeprom_rdata, eeprom_wdata;
 wire        sdram_busy;
 wire  [2:0] config_backup_type;
 wire        backup_written;
+wire        eeprom_written;
 
 wire [16:0] dma_eepromcount;
+
+// ---- battery-save channel (iosys SAVE_IF, SAVE_SYNC=0) --------------------
+// The channel addresses 128KB: an EEPROM game routes it to the EEPROM's second
+// port (blocks 0..15 = the 8KB chip), any other backup type to sdram_gba's
+// save client, where sv_addr[16] is the flash bank. The two targets never
+// overlap because the game has exactly one backup chip.
+// On RTC carts (Pokémon, Boktai) one extra 512-byte block follows the save
+// RAM in the same .sav file (MiSTer-compatible "RT" sector): it rides the
+// channel as blocks [save_blocks] and lands in the GPIO RTC block below,
+// never in backup RAM.
+wire [17:0] sv_addr;
+wire [7:0]  sv_din, sv_q;
+wire        sv_we, sv_req, sv_ack, sv_core_we;
+wire [16:0] sdram_sv_addr;
+wire [7:0]  sdram_sv_q;
+wire        sdram_sv_ack;
+wire        eep_save = config_backup_type == 3'd4;
+wire [1:0]  config_gpio;            // loader byte 1: bit0 RTC, bit1 solar
+
+reg [8:0] save_blocks;              // backup RAM size in 512-byte blocks
+always @* case (config_backup_type)
+3'd4: save_blocks = 9'd16;          // EEPROM 8KB
+3'd3: save_blocks = 9'd64;          // SRAM 32KB
+3'd1: save_blocks = 9'd128;         // Flash 512K
+3'd2: save_blocks = 9'd256;         // Flash 1M
+default: save_blocks = 9'd64;       // no battery: the firmware still wipes 64
+endcase
+wire [8:0] sv_block = sv_addr[17:9];
+wire sv_rtc = sv_block >= save_blocks;
+
+assign sdram_sv_addr = sv_addr[16:0];
+assign sv_q = sv_rtc ? rtc_sv_q : eep_save ? eeprom_rdata : sdram_sv_q;
+// the RTC sector and the EEPROM port answer in one clock (comb/registered)
+assign sv_ack = sv_rtc ? sv_req : eep_save ? sv_req : sdram_sv_ack;
+
+// EEPROM accesses (port B of the chip; the save channel is its only client in
+// the BL616 build). Reads are just addr -> doutb. Writes strobe once per
+// transaction: the engine holds sv_we between UART bytes, and the save RAM
+// must not keep hammering a byte while the game's serial side is mid-write.
+reg sv_req_d = 0;
+always @(posedge clk16) sv_req_d <= sv_req;
+assign eeprom_wr    = (sv_req ^ sv_req_d) & sv_we & eep_save & ~sv_rtc;
+assign eeprom_addr  = sv_addr[12:0];
+assign eeprom_wdata = sv_din;
+
+// Dirty: backup_written is a pulse inside the SDRAM clock's mclk frame, so it
+// is one mclk high and a two-flop catch in clk16 never misses it (the same
+// sampling gba_memory's cartram_dirty relies on). eeprom_written is clk16.
+// A game RTC write dirties the save too, so its clock reaches the card even
+// when save RAM itself is untouched (control writes also pulse: the dump
+// then compares equal and skips the card write).
+reg [2:0] bw_s = 3'b000;
+always @(posedge clk16) bw_s <= {bw_s[1:0], backup_written};
+assign sv_core_we = (bw_s[1] & ~bw_s[2]) | (eeprom_written & eep_save) |
+                    (rtc_written & |config_gpio);
+
+// ---- cartridge GPIO + S-3511A RTC + solar sensor (Boktai/Pokémon) ---------
+// The firmware sends which devices the cart has (loader byte 1) and the wall
+// time (frame 0x14, via iosys). Until the game writes the RTC or a saved RTC
+// sector is restored, frames re-seed the clock, so a fresh game reads the
+// console's Options date/time.
+wire        gpio_cs, gpio_valid, gpio_write, gpio_readable, rtc_written;
+wire [1:0]  gpio_regsel;
+wire [15:0] gpio_wdata, gpio_rdata;
+wire [31:0] time_unix;
+wire [55:0] time_bcd;
+wire [7:0]  time_solar;
+wire        time_strobe;
+`ifdef VERILATOR
+// No iosys under Verilator: the RTC idles (a fresh game reads defaults).
+assign time_unix = 32'h0;
+assign time_bcd = 56'h0;
+assign time_solar = 8'd0;
+assign time_strobe = 1'b0;
+`endif
+wire [7:0]  rtc_sv_q;
+wire        rtc_sv_we = (sv_req ^ sv_req_d) & sv_we & sv_rtc;
+gba_gpio_rtc #(.CLK_HZ(CLK16_HZ)) gpio_rtc (
+    .clk(clk16), .rst(loading == 3'd1),
+    .rtc_present(config_gpio[0]), .solar_present(config_gpio[1]),
+    .cs(gpio_cs), .valid(gpio_valid), .write(gpio_write),
+    .regsel(gpio_regsel), .wdata(gpio_wdata),
+    .rdata(gpio_rdata), .readable(gpio_readable),
+    .time_unix(time_unix), .time_bcd(time_bcd), .time_strobe(time_strobe),
+    .solar_pct(time_solar),
+    .sv_addr(sv_addr[8:0]), .sv_din(sv_din), .sv_we(rtc_sv_we),
+    .sv_q(rtc_sv_q),
+    .rtc_written(rtc_written)
+);
 
 gba_memory mem (
     .clk(clk16), .resetn(resetn), .ce(1'b1),
@@ -347,10 +490,15 @@ gba_memory mem (
     // EEPROM access from RV
     .eeprom_rd(eeprom_rd), .eeprom_wr(eeprom_wr), .eeprom_addr(eeprom_addr),
     .eeprom_rdata(eeprom_rdata), .eeprom_wdata(eeprom_wdata),
+    .eeprom_written(eeprom_written),
 
     // Loader interface
     .loading(loading), .loader_data(loader_do), .loader_valid(loader_do_valid),
     .gbaon(gbaon), .config_backup_type(config_backup_type),
+    .config_gpio(config_gpio),
+    .gpio_cs(gpio_cs), .gpio_valid(gpio_valid), .gpio_write(gpio_write),
+    .gpio_regsel(gpio_regsel), .gpio_wdata(gpio_wdata),
+    .gpio_rdata(gpio_rdata), .gpio_readable(gpio_readable),
     .cartram_dirty(cartram_dirty), .cartram_dirty_clear(cartram_dirty_clear),
 
     // Interface to GPU to access special memory like VRAM, OAMRAM, PALETTE
@@ -387,6 +535,9 @@ sdram_gba sdram (
     .rv_dout(rv_mem_dout), .rv_req(rv_mem_req), .rv_req_ack(rv_mem_req_ack), 
     .rv_we(rv_mem_we),
 
+    .sv_addr(sdram_sv_addr), .sv_din(sv_din), .sv_we(sv_we),
+    .sv_req(sv_req & ~eep_save & ~sv_rtc), .sv_ack(sdram_sv_ack), .sv_dout(sdram_sv_q),
+
     .busy(sdram_busy)
 );
 
@@ -400,6 +551,8 @@ sdram_sim sdram (
     .cpu_ready(cpu_mem_ready), .cpu_port(cpu_mem_port), 
     .config_backup_type(config_backup_type)
 );
+
+assign sdram_sv_ack = sv_req;     // no SDRAM save port in the sim; ack the engine directly
 
 `endif
 
@@ -419,7 +572,7 @@ gba_interrupts intr (.clk(clk16), .resetn(gbaon),
 ////////////////////////////
 
 gba_dma dma (
-    .clk100(clk16), .reset(~gbaon), .ce(1'b1 /*~halt*/), `GB_BUS_PORTS_INST, 
+    .clk100(clk16), .reset(~gbaon), .ce(~core_hold /*~halt*/), `GB_BUS_PORTS_INST, 
     .new_cycles(1), .new_cycles_valid(1'b1), .irp_dma(IRP_DMA), .lastread_dma(), 
     .dma_on(dma_on), .do_step(1'b1), .cpu_preemptable(cpu_en),      // always start DMA after a ready cycle
     .sound_dma_req(sound_dma_req), .hblank_trigger(hblank_trigger), .vblank_trigger(vblank_trigger), 
@@ -435,7 +588,7 @@ gba_dma dma (
 // Timer
 ////////////////////////////
 gba_timer timer (
-    .clk(clk16), .gb_on(1'b1), .reset(~gbaon), 
+    .clk(clk16), .gb_on(~core_hold), .reset(~gbaon), 
     `GB_BUS_PORTS_INST,
     .IRP_Timer(IRP_Timer),  .timer0_tick(timer0_tick), .timer1_tick(timer1_tick), 
     .debugout0(), .debugout1(), .debugout2(), .debugout3() );
@@ -479,6 +632,7 @@ assign joy_usb2 = 12'b0;
 
 `else          // VERILATOR
 wire [11:0] joy_btns_gba = joy_btns;
+wire overlay = 1'b0;        // no OSD menu under verilator, never pause for menu
 `endif
 
 wire [11:0] hid1, hid2;
@@ -509,9 +663,10 @@ gba2hdmi_ddr3 video (       // DDR3-based framebuffer
 	.clk27(clk27), .resetn(resetn), .clk_pixel(hclk), 
     .clk(clk50), .pixel_data(pixel_out_data), .pixel_x(pixel_out_x), .pixel_y(pixel_out_y),
     .pixel_we(pixel_out_we),
-    .sound_left(sound_out_left), .sound_right(sound_out_right),
+    .sound_left(pause ? 16'd0 : sound_out_left), .sound_right(pause ? 16'd0 : sound_out_right),
     .overlay(overlay), .overlay_x(overlay_x), .overlay_y(overlay_y), .overlay_color(overlay_color),
-    .freeze(core_config[6]),
+    .freeze(core_config[6] | core_config[17]),
+    .std_timing(video_std_timing), .rel_toggle(rel_toggle),
 
     .ddr_addr(ddr_addr), .ddr_bank(ddr_bank), .ddr_cs(ddr_cs), .ddr_ras(ddr_ras), .ddr_cas(ddr_cas),
     .ddr_we(ddr_we), .ddr_ck(ddr_ck), .ddr_ck_n(ddr_ck_n), .ddr_cke(ddr_cke), .ddr_odt(ddr_odt),
@@ -536,6 +691,9 @@ gba2hdmi video (            // BRAM-based framebuffer
     .overlay(overlay), 
 `endif
     .overlay_x(overlay_x), .overlay_y(overlay_y), .overlay_color(overlay_color),
+    .scanlines(core_config[16]), .sl_darkness(core_config[19:18]), .sl_thick(core_config[20]), .sl_out(core_config[21]),
+    .video_config(video_config),
+    .std_timing(video_std_timing), .rel_toggle(rel_toggle),
 	.tmds_clk_n(tmds_clk_n), .tmds_clk_p(tmds_clk_p), .tmds_d_n(tmds_d_n),
 	.tmds_d_p(tmds_d_p)
 );
@@ -545,12 +703,20 @@ gba2hdmi video (            // BRAM-based framebuffer
 // iosys for menu, rom loading and other functions
 ////////////////////////////
 
-iosys_bl616 #(.CORE_ID(3), .COLOR_LOGO(15'b01111_01100_10101), .FREQ(16_650_000)) iosys (
-    .clk(clk16), .hclk(clk50),      // hclk=clk50: goes to framebuffer_ddr3 for overlay
+iosys_bl616 #(.CORE_ID(3), .COLOR_LOGO(15'b01111_01100_10101), .FREQ(CLK16_HZ),
+    .SAVE_IF(1), .SAVE_AW(18), .SAVE_SYNC(0),
+    .FAST_UART(1), .FAST_FREQ(CLK16_HZ*4)) iosys (
+`ifdef DDR3_FRAMEBUFFER
+    .clk(clk16), .clk_fast(clk67), .hclk(clk50),      // hclk=clk50: goes to framebuffer_ddr3 for overlay
+`else
+    .clk(clk16), .clk_fast(clk67), .hclk(hclk),       // BRAM framebuffer reads the overlay in the pixel clock domain
+`endif
     .resetn(resetn),
 
     .overlay(overlay), .overlay_x(overlay_x), .overlay_y(overlay_y), .overlay_color(overlay_color),
-    .core_config(core_config),
+    .core_config(core_config), .video_config(video_config),
+    .time_unix(time_unix), .time_bcd(time_bcd),
+    .time_solar(time_solar), .time_flags(), .time_strobe(time_strobe),
     .joy1(joy_btns | joy_usb1 | joy_usb2), .joy2(12'b0),
     .hid1(hid1), .hid2(hid2),
 
@@ -559,6 +725,10 @@ iosys_bl616 #(.CORE_ID(3), .COLOR_LOGO(15'b01111_01100_10101), .FREQ(16_650_000)
 `else
     .rom_loading(loading), .rom_do(loader_do), .rom_do_valid(loader_do_valid), 
 `endif
+
+    // battery-save channel: cart RAM (SDRAM) or the EEPROM's second port, see above
+    .sv_addr(sv_addr), .sv_din(sv_din), .sv_we(sv_we), .sv_q(sv_q),
+    .sv_core_we(sv_core_we), .sv_req(sv_req), .sv_ack(sv_ack),
 
     .uart_tx(UART_TXD), .uart_rx(UART_RXD)
 );

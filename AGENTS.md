@@ -19,10 +19,23 @@ GBA for the Tang Console 138K/60K. Started as a port of `MiSTer-devel/GBA_MiSTer
 gw_sh build.tcl <device>   # console60k mega60k console138k mega138k mega138kpro
 ```
 
-`build.tcl` selects the CST/SDC/PLL/video stack per family; there is no controller argument. CI:
+`build.tcl` selects the CST/SDC/PLL/video stack per family; there is no controller argument.
+
+Build variants (`TANGCORE_VARIANT`, unset or `standard` = the 720p60 build; `hz120` = the
+480p120 build with runtime BFI, console138k only; anything else is an error):
+
+```tcl
+gw_sh build.tcl console138k                       # standard 720p60 bitstream
+TANGCORE_VARIANT=hz120 gw_sh build.tcl console138k  # 480p120 bitstream (load as gbatang_120hz.bin)
+```
+
+The RTL sees the variant through `src/variant/<variant>/variant.vh` (on the include path):
+`HZ120` is defined for hz120 and nowhere else. `src/pll/pll_74_hz120.v` (54 MHz) replaces
+`src/pll/pll_74.v` (74.25 MHz) in the hz120 build. CI:
 
 ```sh
 gh workflow run cores.yml -R cassiostp/tangcore --ref ci/core-builds -f core=gbatang -f ref=<branch> -f board=console138k
+gh workflow run cores.yml -R cassiostp/tangcore --ref ci/core-builds -f core=gbatang -f ref=<branch> -f board=console138k -f variant=hz120
 ```
 
 Fails on any setup/hold violation.
@@ -50,12 +63,18 @@ The top halts the GBA (`frame_halt`, `core_hold`) on the first vblank trigger an
 - `audio`: real `gba_sound` under a `core_hold` enable pattern (pitch, mixer-hold, DMA ticks, no-click).
 - `cosim`: Verilator `iosys_bl616`+`sdram_gba` + chip for firmware co-sim (`firmware host/README.md` RTL backend).
 - `fastuart`: `FAST_UART 0x15/0x16` at wire level, 8 Mbaud + CRC + watchdog.
-- `framelock`: real `gba2hdmi` at 1657 vs the GPU-timing model + top halt copy, 138K/60K must lock.
+- `framelock`: real `gba2hdmi` at the native htotal vs the GPU-timing model + top halt copy, 138K/60K must lock.
 - `gpio_rtc`: S-3511A bit-bang + solar + save sector; `0x080000C4/C6/C8` decode.
 - `saveram`: end-to-end `0x06/0x11/0x0B/0x12/0x0A` per backup type plus SDRAM/EEPROM/memstream benches.
 - `scanlines`: row generator/darkening plus whole-frame `gba2hdmi` vs model.
 - `tmds`: 2-stage `tmds_channel` vs the git-history direct version over ~2.5M clocks.
 - `video_fx`: `0x13`, `video_fx` vs `model.py`, git-history regress with filters off, FX and smoothing checks.
+
+The video benches (`scanlines`, `framelock`, `audio`, `video_fx`) run for both variants:
+`sh sim/<bench>/run.sh [standard|hz120|both]` (default `both`; the `tb_*` module-level and
+shared-logic benches run once). At 120 Hz the GBA picture is a full-bleed 3x (240x160 to
+720x480), so `core_config[21]` (Full/Integer) changes nothing; the `video_config[21:20]` BFI
+modes are covered by `tb_gba_scaler_hz120`.
 
 ## Traps
 

@@ -171,9 +171,16 @@ module video_fx (
     // They are computed for the pixel that will be output three clocks later, x = cx + MASK_LEAD:
     // p3 = x mod 3 and trd = (x div 3) mod 2 count along cx, restarted on the first column
     // of a row (the clock after it holds x = 1 + MASK_LEAD).
+    // (HZ120: the scaler passes cx/cy 3 clocks anticipated, so cx == 0 is the
+    // last picture column's fac sample and the restart below lands the new
+    // row's phase in time for the first columns; TRD_0 serves output x = 1.)
     localparam MASK_LEAD = 3;
     localparam P3_0  = (1 + MASK_LEAD) % 3;
+`ifdef HZ120
+    localparam TRD_0 = 0;   // (x div 3) mod 2 for the first served column x = 1
+`else
     localparam TRD_0 = ((1 + MASK_LEAD) / 3) % 2;
+`endif
     reg [1:0] p3;
     reg       trd;
     always @(posedge clk) begin

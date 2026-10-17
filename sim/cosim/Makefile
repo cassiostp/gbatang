@@ -86,6 +86,7 @@ model: $(GEN)/iosys_bl616_cosim.v $(GEN)/sdram_gba_sim.v $(GEN)/uart_fixed_sim.v
 	# documented seds, so the waivers live here, not in its sources.
 	$(VERILATOR) --cc --top-module cosim_top --prefix Vcosim_top \
 	    -Mdir obj -DCOSIM -CFLAGS "-O2" \
+	    +incdir+/coresim-src/src/variant/standard \
 	    -Wno-PINMISSING -Wno-IMPLICIT -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-CASEINCOMPLETE \
 	    $(COSIM_SRCS) > $(COSIM)/build/verilate.log 2>&1 && \
 	test ! -s $(COSIM)/build/verilate.log || ! grep -E "PINMISSING.*(cosim_top|sdram_chip|gowin_dpb)" $(COSIM)/build/verilate.log
@@ -105,6 +106,7 @@ model: $(GEN)/iosys_bl616_cosim.v $(GEN)/sdram_gba_sim.v $(GEN)/uart_fixed_sim.v
 
 lint: $(GEN)/iosys_bl616_cosim.v $(GEN)/sdram_gba_sim.v $(GEN)/uart_fixed_sim.v
 	$(IVERILOG) iverilog -g2012 -DCOSIM -o /dev/null -s cosim_top \
+	    -I /coresim-src/src/variant/standard \
 	    /coresim-src/sim/cosim/cosim_top.sv \
 	    /coresim-build/gen/iosys_bl616_cosim.v /coresim-build/gen/uart_fixed_sim.v \
 	    /coresim-src/src/iosys/uart_fast.v /coresim-src/src/common/dual_clk_fifo.v \

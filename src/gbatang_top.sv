@@ -146,11 +146,14 @@ wire pause = core_config[17] & gbaon;     // menu pause, only active while the g
 // next frame and the phase is exact. This freezes the same gates as the menu
 // pause; the DDR3 path's pause-only audio mute is untouched, and the halt
 // never injects silence (sound keeps running, HDMI keeps sampling it).
-wire video_std_timing = 1'b0;   // 1: standard 60 Hz timing (for displays that refuse the native rate; a menu option for it may come later)
+// (HZ120: the GBA runs at exactly half the HDMI rate, 59.7312 Hz at the
+// native htotal 861, and the release comes on even HDMI frames, once per
+// game frame; each game frame is read twice for BFI.)
+wire video_std_timing = 1'b0;   // 1: standard timing (for displays that refuse the native rate); 0: native rate (x2 in the HZ120 variant)
 wire rel_toggle;                // from the video module (pixel-clock domain)
 reg [2:0] rel_sync = 0;
 reg rel_lvl_q = 0;
-wire rel_pulse = rel_sync[2] ^ rel_lvl_q;   // one clk16 per HDMI frame
+wire rel_pulse = rel_sync[2] ^ rel_lvl_q;   // one clk16 per HDMI frame (per game frame in the HZ120 variant)
 reg frame_halt = 0;
 wire core_hold = pause | frame_halt;
 always @(posedge clk16) begin

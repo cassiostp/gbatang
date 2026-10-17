@@ -1,10 +1,25 @@
 // Stand-ins for the Gowin and HDMI parts of a scaler, for simulation: a pixel
 // counter with the real module's timing (cx counts the frame_width x 750
-// frame, std_timing ? 1650 : NATIVE_FRAME_WIDTH like the real hdmi.sv, and
-// the picture is the rgb input seen while cx = x + 1), and a pass-through
-// output buffer. An unconnected std_timing (the history baselines built by
-// prep.sh predate the port) reads as Z and selects the standard 1650.
+// frame at 720p, x 525 at 480p120; std_timing ? 1650/858 : NATIVE_FRAME_WIDTH
+// like the real hdmi.sv, and the picture is the rgb input seen while
+// cx = x + 1), and a pass-through output buffer. An unconnected std_timing
+// (the history baselines built by prep.sh predate the port) reads as Z and
+// selects the standard line. HZ120 (from variant.vh on the include path)
+// selects the 480p120 geometry.
+`include "variant.vh"
+
 module hdmi #(
+`ifdef HZ120
+    parameter VIDEO_ID_CODE = 48,
+    parameter DVI_OUTPUT = 0,
+    parameter VIDEO_REFRESH_RATE = 120.0,
+    parameter IT_CONTENT = 1,
+    parameter AUDIO_RATE = 48000,
+    parameter AUDIO_BIT_WIDTH = 16,
+    parameter START_X = 0,
+    parameter START_Y = 0,
+    parameter NATIVE_FRAME_WIDTH = 861
+`else
     parameter VIDEO_ID_CODE = 4,
     parameter DVI_OUTPUT = 0,
     parameter VIDEO_REFRESH_RATE = 60.0,
@@ -14,6 +29,7 @@ module hdmi #(
     parameter START_X = 0,
     parameter START_Y = 0,
     parameter NATIVE_FRAME_WIDTH = 1657
+`endif
 ) (
     input         clk_pixel_x5,
     input         clk_pixel,
@@ -30,15 +46,25 @@ module hdmi #(
     output [9:0]  frame_height
 );
     wire std_eff = (std_timing === 1'b0) ? 1'b0 : 1'b1;
+`ifdef HZ120
+    wire [10:0] fw = std_eff ? 11'd858 : NATIVE_FRAME_WIDTH;
+    assign frame_width = fw;
+    assign frame_height = 525;
+`else
     wire [10:0] fw = std_eff ? 11'd1650 : NATIVE_FRAME_WIDTH;
     assign frame_width = fw;
     assign frame_height = 750;
+`endif
     assign tmds = 3'b0;
     assign tmds_clock = 1'b0;
     always @(posedge clk_pixel) begin
         cx <= (cx == fw - 1'b1) ? 11'd0 : cx + 11'd1;
         if (cx == fw - 1'b1)
+`ifdef HZ120
+            cy <= (cy == 10'd524) ? 10'd0 : cy + 10'd1;
+`else
             cy <= (cy == 10'd749) ? 10'd0 : cy + 10'd1;
+`endif
     end
 endmodule
 

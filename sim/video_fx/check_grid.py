@@ -8,7 +8,9 @@ origin and size are read from the log itself (with the integer geometry the
 picture is 960x640, 4 columns per pixel and 4 rows per line), so a darkened
 pixel must satisfy (x - x0) % 4 == 3 or (y - y0) % 4 == 3.
 
-Run with python3 -I:  check_grid.py gba_fx.log GRIDCFG
+Run with python3 -I:  check_grid.py gba_fx.log GRIDCFG [pitch width]
+(pitch defaults to 4 and width to 960, the 720p integer geometry; the 480p
+120 Hz build logs pitch 3, width 720.)
 """
 import sys
 
@@ -17,7 +19,7 @@ def unpack(v):
     return ((v >> 16) & 255, (v >> 8) & 255, v & 255)
 
 
-def main(path, cfg):
+def main(path, cfg, pitch=4, width=960):
     pic = {}
     for line in open(path):
         t = line.split()
@@ -37,8 +39,8 @@ def main(path, cfg):
     y0, y1 = min(y for _, y in pic), max(y for _, y in pic)
     bad = dark = col_hit = row_hit = 0
     for (x, y), (rgb, got) in pic.items():
-        last_col = (x - x0) % 4 == 3
-        last_row = (y - y0) % 4 == 3
+        last_col = (x - x0) % pitch == pitch - 1
+        last_row = (y - y0) % pitch == pitch - 1
         if got != rgb:
             dark += 1
             col_hit += last_col
@@ -53,8 +55,8 @@ def main(path, cfg):
                 print("MISMATCH x=%d y=%d: last column/row not darkened" % (x, y))
     print("grid check: picture x=%d..%d, %d logged rows, %d picture pixels, %d darkened (%d last-column, %d last-row), %d mismatches"
           % (x0, x1, len({y for _, y in pic}), len(pic), dark, col_hit, row_hit, bad))
-    if x1 - x0 + 1 != 960:      # the logged rows cover every output column: 4 columns per pixel
-        print("grid check: picture is not 960 wide")
+    if x1 - x0 + 1 != width:      # the logged rows cover every output column
+        print("grid check: picture is not %d wide" % width)
         bad += 1
     if dark == 0 or col_hit == 0 or row_hit == 0:
         print("grid check: no coverage (no darkened / column / row pixels)")
@@ -63,6 +65,8 @@ def main(path, cfg):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
+    if len(sys.argv) not in (3, 5):
         sys.exit(__doc__)
-    sys.exit(main(sys.argv[1], int(sys.argv[2], 16)))
+    pitch = int(sys.argv[3]) if len(sys.argv) > 3 else 4
+    width = int(sys.argv[4]) if len(sys.argv) > 4 else 960
+    sys.exit(main(sys.argv[1], int(sys.argv[2], 16), pitch, width))

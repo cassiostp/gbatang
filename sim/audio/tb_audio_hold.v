@@ -19,6 +19,7 @@
 //     524288 Hz / r / 2^(s+1), and a length-limited ch2 note ends after
 //     its 256 Hz length ticks (all clk/4-derived, GBATEK rates).
 `timescale 1ns/1ps
+`include "variant.vh"
 
 // File-scope copy of the bus/regmap header: Verilator 5.052 hits an internal
 // error (V3LinkDotIfaceCapture) on the module-scope `includes of this header
@@ -31,8 +32,13 @@
 module tb_audio_hold;
 
     localparam CLK16H = 29.7369;            // 138K clk16 16.8125 MHz, half period
+`ifdef HZ120
+    localparam FRAME = 281469;              // mclk per game frame at 16.8125 MHz (480p120 lock: 59.7312 Hz)
+    localparam HOLD = FRAME - 280896;       // 573 mclk halted per frame
+`else
     localparam FRAME = 281398;              // mclk per HDMI frame at 16.8125 MHz
     localparam HOLD = FRAME - 280896;       // 502 mclk halted per frame
+`endif
     localparam NFRAMES = 24;
     localparam FREE_CLKS = 3000000;
     localparam WAVE_N = 1929;               // ch2 freq reg

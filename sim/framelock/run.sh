@@ -22,7 +22,7 @@
 set -e
 cd "$(dirname "$0")"
 RTL=../../src
-IV="docker run --rm --name framelock_tb --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/framelock tangcore-iv:1"
+IV="docker run --rm --name gbaaudio_framelock_tb --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/framelock tangcore-iv:1"
 HDMI="hdmi_frame_stub.v"
 $IV sh -c 'iverilog -g2012 -o tb_138k.out tb_frame_lock.v prim_stubs.v '"$HDMI"' \
     '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v '"$RTL"'/smooth.v \

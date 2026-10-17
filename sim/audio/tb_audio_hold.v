@@ -6,12 +6,18 @@
 // gb_on=~core_hold already freezes it (gba_timer_module.v:77).
 //
 // Checks:
-//  1. PSG pitch under gating == free pitch x active fraction (0.05%).
+//  1. PSG pitch is the GBATEK pitch: ch1/2 wave period is 128*(2048-N)
+//     clk (the PSG timebase is clk/4 = 4.194304 MHz, one wavetable step
+//     every 4*(2048-N) PSG cycles), and under gating it follows game
+//     speed (0.05%).
 //  2. The mixer output holds (never silent, never forced to 0) across holds.
 //  3. DMA consumption tracks issued ticks exactly (floor(ticks/4) dwords)
 //     with no lost writes, and the FIFO does not move during holds, so the
 //     DirectSound rate follows game speed.
 //  4. No sample step larger than the free-run maximum (no clicks/buzz).
+//  5. ch3 wave period is 32 * 8*(2048-N) clk, the ch4 LFSR clocks at
+//     524288 Hz / r / 2^(s+1), and a length-limited ch2 note ends after
+//     its 256 Hz length ticks (all clk/4-derived, GBATEK rates).
 `timescale 1ns/1ps
 
 // File-scope copy of the bus/regmap header: Verilator 5.052 hits an internal
@@ -29,11 +35,12 @@ module tb_audio_hold;
     localparam HOLD = FRAME - 280896;       // 502 mclk halted per frame
     localparam NFRAMES = 24;
     localparam FREE_CLKS = 3000000;
-    localparam WAVE_N = 1929;               // ch2 freq reg: period 32*(2048-N)
-    localparam WAVE_PERIOD = 40 * (2048 - WAVE_N);   // 4760 mclk (freq step
-                                                        // costs 5 clks: the
-                                                        // >=4 test sees the
-                                                        // pre-increment value)
+    localparam WAVE_N = 1929;               // ch2 freq reg
+    localparam WAVE_PERIOD = 128 * (2048 - WAVE_N);  // 15232 mclk: GBATEK
+                                            // 131072/(2048-N) Hz at 16.78 MHz
+                                            // (8 steps x 4 PSG cycles x 4 clk)
+    localparam WAVE3_N = 1984;              // ch3 rate reg (2048-N = 64)
+    localparam WAVE3_PERIOD = 32 * 8 * (2048 - WAVE3_N);  // 16384 mclk
     localparam TICK_EVERY = 1600;           // DMA timer tick spacing (active clks)
 
     reg clk = 0;
@@ -214,11 +221,11 @@ module tb_audio_hold;
         free_per = 1.0 * (last_edge_clk - first_edge_clk) / (edge_cnt - 1);
         $display("free: edges=%0d clks/period=%0f (expect %0d) maxstep=%0d",
                  edge_cnt, free_per, WAVE_PERIOD, free_max_delta);
-        if (edge_cnt < 600) begin
+        if (edge_cnt < 150) begin
             $display("FAIL: too few free edges"); errors = errors + 1;
         end
         if (free_per < WAVE_PERIOD - 0.01 || free_per > WAVE_PERIOD + 0.01) begin
-            $display("FAIL: free pitch off (bench broken?)"); errors = errors + 1;
+            $display("FAIL: free pitch != GBATEK 131072/(2048-N) Hz"); errors = errors + 1;
         end
 
         // ---- Phase B: gated run, PSG only ----
@@ -293,6 +300,81 @@ module tb_audio_hold;
             $display("FAIL: DMA pops do not track ticks");
             errors = errors + 1;
         end
+
+        // ---- Phase D: ch3/ch4 rates + ch2 length tick (GBATEK, clk/4) ----
+        phase <= 4;
+        // DMA channels off, PSG volume 100%
+        bus_write(28'h080, 32'h00020000, 4'hC);
+        // wave RAM: 16 digits F then 16 digits 0 (written to the access
+        // bank; the bank select below points playback at it)
+        bus_write(28'h090, 32'hFFFFFFFF, 4'hF);
+        bus_write(28'h094, 32'hFFFFFFFF, 4'hF);
+        bus_write(28'h098, 32'h00000000, 4'hF);
+        bus_write(28'h09C, 32'h00000000, 4'hF);
+        // SOUND3CNT_L: dimension 0, bank 1 (the written bank), channel on;
+        // SOUND3CNT_H (same word): length 0, volume 100%
+        bus_write(28'h070, 32'h200000C0, 4'hF);
+        // SOUNDCNT_L: ch3 enable R+L only
+        bus_write(28'h080, 32'h00004477, 4'h3);
+        // SOUND3CNT_X: rate WAVE3_N, restart, no length stop
+        bus_write(28'h074, 32'h00008000 | WAVE3_N, 4'h3);
+        repeat (200) @(posedge clk);
+        arm_edges;
+        repeat (2000000) @(posedge clk);
+        armed <= 0;
+        repeat (4) @(posedge clk);
+        free_per = 1.0 * (last_edge_clk - first_edge_clk) / (edge_cnt - 1);
+        $display("ch3: edges=%0d clks/period=%0f (expect %0d)",
+                 edge_cnt, free_per, WAVE3_PERIOD);
+        if (edge_cnt < 100) begin
+            $display("FAIL: too few ch3 edges"); errors = errors + 1;
+        end
+        if (free_per < WAVE3_PERIOD - 0.05 || free_per > WAVE3_PERIOD + 0.05) begin
+            $display("FAIL: ch3 rate != GBATEK 2097152/(2048-N) samples/s");
+            errors = errors + 1;
+        end
+
+        // ch4: LFSR rate. ratio code 1 (r=1), shift s=0: 524288/1/2 Hz,
+        // i.e. one shift per 64 clk. Count shifts hierarchically.
+        bus_write(28'h080, 32'h00008877, 4'h3);   // ch4 enable R+L only
+        bus_write(28'h078, 32'h00008000, 4'h3);   // vol 8, no envelope, len 0
+        bus_write(28'h07C, 32'h00008001, 4'h3);   // r=1, s=0, restart
+        repeat (200) @(posedge clk);
+        begin : ch4count
+            integer shifts, k;
+            reg [14:0] prev_lfsr;
+            shifts = 0;
+            prev_lfsr = dut.igba_sound_ch4.lfsr;
+            for (k = 0; k < 640000; k = k + 1) begin
+                @(posedge clk);
+                if (dut.igba_sound_ch4.lfsr !== prev_lfsr) shifts = shifts + 1;
+                prev_lfsr = dut.igba_sound_ch4.lfsr;
+            end
+            $display("ch4: shifts=%0d in 640000 clk (expect 10000 +/- 100)", shifts);
+            if (shifts < 9900 || shifts > 10100) begin
+                $display("FAIL: ch4 LFSR rate != GBATEK 524288/r/2^(s+1) Hz");
+                errors = errors + 1;
+            end
+        end
+
+        // ch2 length: length_left = 4 ticks at 256 Hz = 4*65536 clk.
+        // The tick counter free-runs, so the note must still be on at
+        // +131072 clk (2 ticks cannot have elapsed... up to 3 may) and
+        // must be off by +400000 clk (more than 5 ticks always elapse).
+        bus_write(28'h080, 32'h00002277, 4'h3);   // ch2 enable R+L only
+        bus_write(28'h068, 32'h0000C080 | 60, 4'h3);  // len 60 -> 4 left
+        bus_write(28'h06C, 32'h0000C000 | WAVE_N, 4'h3);  // len flag + restart
+        repeat (131072) @(posedge clk);
+        if (!dut.igba_sound_ch2.ch_on) begin
+            $display("FAIL: ch2 length expired before 2 ticks (131072 clk)");
+            errors = errors + 1;
+        end
+        repeat (400000 - 131072) @(posedge clk);
+        if (dut.igba_sound_ch2.ch_on) begin
+            $display("FAIL: ch2 length not expired after 400000 clk");
+            errors = errors + 1;
+        end
+        $display("ch2 length: on at 131072 clk, off by 400000 clk (4x65536)");
 
         if (errors == 0)
             $display("tb_audio_hold: PASS");

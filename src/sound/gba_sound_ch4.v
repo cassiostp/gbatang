@@ -172,9 +172,10 @@ module gba_sound_ch4(clk, reset, gb_on, gb_bus_din, gb_bus_dout, gb_bus_adr, gb_
                 
                 wave_on <= (~lfsr[0]);
                 
-                // freq / wavetable
-                if (soundcycles_freq >= freq_divider) begin
-                    soundcycles_freq <= soundcycles_freq - freq_divider;
+                // freq / wavetable: one shift every freq_divider PSG
+                // cycles (the -(divider-1) overrides the +1 above)
+                if (soundcycles_freq >= freq_divider - 1) begin
+                    soundcycles_freq <= soundcycles_freq - (freq_divider - 1);
                     if (lfsr7bit)
                         lfsr <= {8'h00, (lfsr[1] ^ lfsr[0]), lfsr[6:1]};
                     else

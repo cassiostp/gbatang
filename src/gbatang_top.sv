@@ -193,6 +193,16 @@ wire [1:0] dma_bus_acc;
 // GPU to DMA signals
 wire hblank_trigger, vblank_trigger, videodma_start, videodma_stop;
 
+`ifdef VERILATOR
+// No video module in the Verilator build to drive rel_toggle: release the
+// native-rate frame lock from vblank itself (a few clk16 per frame through
+// the synchroniser), so games run instead of halting at the first frame.
+reg rel_toggle_sim = 0;
+always @(posedge clk16)
+    if (vblank_trigger) rel_toggle_sim <= ~rel_toggle_sim;
+assign rel_toggle = rel_toggle_sim;
+`endif
+
 // sound
 wire [15:0] sound_out_left /* verilator public */, sound_out_right /* verilator public */;
 wire [1:0] sound_dma_req;

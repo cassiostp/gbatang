@@ -25,7 +25,7 @@ module gba2hdmi (
     input scanlines,            // core_config[16]: scanlines on
     input [1:0] sl_darkness,    // core_config[19:18]: 25, 50, 75, 100 % dark
     input sl_thick,             // core_config[20]: thick lines
-    input sl_out,               // core_config[21]: dark output rows instead of an integer scale
+    input sl_out,               // core_config[21]: scale, 0 = integer, 1 = full
     input [31:0] video_config,  // colour controls, CRT mask and LCD grid, see video_fx.v
 
     input std_timing,           // 1: standard 60 Hz 720p timing, 0: native GBA rate (see hdmi.sv)

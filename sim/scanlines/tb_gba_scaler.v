@@ -145,7 +145,7 @@ module tb_gba_scaler;
                     want = BORDER;
                 else begin
                     want = to_rgb(src_color(line));
-                    if (cur_geom ? ((row - ptop) % R >= R - nd) : (on & out & ((row % R) >= R - nd)))
+                    if (on && (cur_geom ? ((row - ptop) % R >= R - nd) : ((row % R) >= R - nd)))
                         want = darken(want, dk);
                 end
                 if (got !== want) fail("picture", row, got, want);
@@ -196,7 +196,7 @@ module tb_gba_scaler;
     task set(input on, input out, input thick, input [1:0] dk, input over);
         begin
             sl_on = on; sl_out = out; sl_thick = thick; sl_dark = dk; ov = over;
-            cur_geom = on & ~out & ~over;
+            cur_geom = ~out & ~over;
             settle;
         end
     endtask
@@ -222,7 +222,8 @@ module tb_gba_scaler;
         #1;
         load_rows;
         // by row: the vertical geometry and the darkening
-        run(0, 0, 0, 2, 0);                     // off: the old geometry
+        run(0, 0, 0, 2, 0);                     // off, Integer scale: integer geometry, no darkening
+        run(0, 1, 0, 2, 0);                     // off, Full scale
         run(1, 0, 0, 2, 0);                     // the default: integer, thin, 75 %
         run(1, 0, 1, 0, 0);
         run(1, 0, 0, 1, 0);
@@ -234,7 +235,7 @@ module tb_gba_scaler;
         run(1, 0, 1, 2, 0);                     // and back
         // by column: the horizontal geometry
         load_columns;
-        columns(0, 0); columns(1, 0); columns(1, 1);
+        columns(0, 0); columns(0, 1); columns(1, 0); columns(1, 1);
         $display("tb_gba_scaler: PASS");
         $finish;
     end

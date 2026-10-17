@@ -4,6 +4,9 @@
 // overlay up or not. The words tried: 0, what the firmware sends with every filter off (the
 // strengths at 1), and one with strengths set but the colour, mask and grid effects off.
 // (The LCD grid bit is not tried here: on the GBA it switches to the integer geometry.)
+// Scanlines off with Scale Integer is not tried here either: it uses the integer geometry
+// since the Scale setting, while the baseline predates it (tb_smooth_regress covers that
+// mode against the scaler the smoothing was removed from).
 // The frame buffer holds a pseudo-random picture and the overlay is a pattern read through the
 // overlay_x / overlay_y outputs with a two clock latency, so a picture or overlay that lands on
 // other pixels is caught. Settings change in the blanking, then two whole frames are compared.
@@ -117,9 +120,9 @@ module tb_gba_regress;
     initial begin
         // the first frame runs the pipelines empty; the settings are applied in its blanking
         wait_row730;
-        variant(0, 0, 0, 2, 0, OFF);
-        variant(0, 0, 0, 2, 0, FW_OFF);
-        variant(0, 0, 0, 2, 0, STR);
+        variant(0, 1, 0, 2, 0, OFF);              // off, Full scale
+        variant(0, 1, 0, 2, 0, FW_OFF);
+        variant(0, 1, 0, 2, 0, STR);
         variant(1, 0, 0, 2, 0, OFF);            // integer scale, thin
         variant(1, 0, 0, 2, 0, FW_OFF);
         variant(1, 0, 1, 0, 0, FW_OFF);         // thick, 25 %

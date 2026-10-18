@@ -79,11 +79,11 @@ COSIM_SRCS := /coresim-src/sim/cosim/cosim_top.sv \
 	/coresim-src/sim/cosim/sdram_chip.sv
 
 # cosim tests the standard save/menu path, so the variant header it compiles
-# (textdisp.v includes it) is the standard one, materialised here like
-# build.tcl does for Gowin (git-ignored).
+# (textdisp.v includes it) is the standard one, materialised in src/common
+# like build.tcl does for Gowin (git-ignored).
 $(GEN)/variant.vh: $(RTL)/variant/standard/variant.vh
 	mkdir -p $(GEN)
-	cp -f $(RTL)/variant/standard/variant.vh $(RTL)/variant.vh
+	cp -f $(RTL)/variant/standard/variant.vh $(RTL)/common/variant.vh
 	touch $@
 
 model: $(GEN)/iosys_bl616_cosim.v $(GEN)/sdram_gba_sim.v $(GEN)/uart_fixed_sim.v $(GEN)/variant.vh
@@ -97,7 +97,8 @@ model: $(GEN)/iosys_bl616_cosim.v $(GEN)/sdram_gba_sim.v $(GEN)/uart_fixed_sim.v
 	    +incdir+/coresim-src/src/common \
 	    -Wno-PINMISSING -Wno-IMPLICIT -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-CASEINCOMPLETE \
 	    $(COSIM_SRCS) > $(COSIM)/build/verilate.log 2>&1 && \
-	test ! -s $(COSIM)/build/verilate.log || ! grep -E "PINMISSING.*(cosim_top|sdram_chip|gowin_dpb)" $(COSIM)/build/verilate.log
+	{ test ! -s $(COSIM)/build/verilate.log || ! grep -E "PINMISSING.*(cosim_top|sdram_chip|gowin_dpb)" $(COSIM)/build/verilate.log; } || \
+	{ cat $(COSIM)/build/verilate.log; exit 1; }
 	# NOTE: PINMISSING is waived only for the core's own files (unconnected
 	# RxD_idle/endofpacket in iosys); a missing pin in cosim_top, the chip
 	# or the stand-in is a wiring bug (it once hid an unconnected DQM), so

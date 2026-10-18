@@ -7,6 +7,28 @@ if {$argc == 0} {
 
 set dev [lindex $argv 0]
 
+# Build variant: standard (720p60) or hz120 (480p120 with runtime BFI).
+# Only console138k has an hz120 bitstream.
+if {[info exists ::env(TANGCORE_VARIANT)]} {
+    set variant $::env(TANGCORE_VARIANT)
+} else {
+    set variant "standard"
+}
+if {$variant eq ""} { set variant "standard" }
+if {$variant ne "standard" && $variant ne "hz120"} {
+    error "Unknown TANGCORE_VARIANT $variant (want standard or hz120)"
+}
+if {$variant eq "hz120" && $dev ne "console138k"} {
+    error "TANGCORE_VARIANT=hz120 is only supported on console138k"
+}
+puts "TangCore variant: $variant"
+
+# The RTL sees the variant through variant.vh (HZ120 defined for hz120,
+# empty for standard). It lives in src/common (on the include path, like the
+# other shared headers): build.tcl copies it there from src/variant/<variant>
+# before the build. Git-ignored.
+file copy -force "src/variant/${variant}/variant.vh" "src/common/variant.vh"
+
 if {$dev eq "console60k" || $dev eq "mega60k"} {
    set_device GW5AT-LV60PG484AC1/I0 -device_version B
    if {$dev eq "console60k"} {
@@ -47,7 +69,12 @@ if {$dev eq "console60k" || $dev eq "mega60k"} {
 
    add_file -type verilog "src/pll/pll_27.v"
    add_file -type verilog "src/pll/pll_33.v"
-   add_file -type verilog "src/pll/pll_74.v"
+   if {$variant eq "hz120"} {
+      # 54 MHz pixel clock for 480p120 (module pll_74, MDIV 40)
+      add_file -type verilog "src/pll/pll_74_hz120.v"
+   } else {
+      add_file -type verilog "src/pll/pll_74.v"
+   }
    add_file -type verilog "src/pll/pll_12.v"
 
    add_file -type verilog "src/usb_hid_host.v"

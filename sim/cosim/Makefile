@@ -78,7 +78,15 @@ COSIM_SRCS := /coresim-src/sim/cosim/cosim_top.sv \
 	/coresim-build/gen/sdram_gba_sim.v \
 	/coresim-src/sim/cosim/sdram_chip.sv
 
-model: $(GEN)/iosys_bl616_cosim.v $(GEN)/sdram_gba_sim.v $(GEN)/uart_fixed_sim.v
+# cosim tests the standard save/menu path, so the variant header it compiles
+# (textdisp.v includes it) is the standard one, materialised here like
+# build.tcl does for Gowin (git-ignored).
+$(GEN)/variant.vh: $(RTL)/variant/standard/variant.vh
+	mkdir -p $(GEN)
+	cp -f $(RTL)/variant/standard/variant.vh $(RTL)/variant.vh
+	touch $@
+
+model: $(GEN)/iosys_bl616_cosim.v $(GEN)/sdram_gba_sim.v $(GEN)/uart_fixed_sim.v $(GEN)/variant.vh
 	mkdir -p $(OBJ) $(COSIM)/build/runtime
 	# -Wno-*: the core's own RTL carries pre-existing style Verilator flags
 	# (implicit nets, width mismatches, partial cases, undriven pins); the
@@ -86,6 +94,7 @@ model: $(GEN)/iosys_bl616_cosim.v $(GEN)/sdram_gba_sim.v $(GEN)/uart_fixed_sim.v
 	# documented seds, so the waivers live here, not in its sources.
 	$(VERILATOR) --cc --top-module cosim_top --prefix Vcosim_top \
 	    -Mdir obj -DCOSIM -CFLAGS "-O2" \
+	    +incdir+/coresim-src/src/common \
 	    -Wno-PINMISSING -Wno-IMPLICIT -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-CASEINCOMPLETE \
 	    $(COSIM_SRCS) > $(COSIM)/build/verilate.log 2>&1 && \
 	test ! -s $(COSIM)/build/verilate.log || ! grep -E "PINMISSING.*(cosim_top|sdram_chip|gowin_dpb)" $(COSIM)/build/verilate.log
@@ -103,8 +112,9 @@ model: $(GEN)/iosys_bl616_cosim.v $(GEN)/sdram_gba_sim.v $(GEN)/uart_fixed_sim.v
 	test -f $(COSIM)/build/runtime/verilated.h
 	ls $(OBJ)/Vcosim_top__ALL.a
 
-lint: $(GEN)/iosys_bl616_cosim.v $(GEN)/sdram_gba_sim.v $(GEN)/uart_fixed_sim.v
+lint: $(GEN)/iosys_bl616_cosim.v $(GEN)/sdram_gba_sim.v $(GEN)/uart_fixed_sim.v $(GEN)/variant.vh
 	$(IVERILOG) iverilog -g2012 -DCOSIM -o /dev/null -s cosim_top \
+	    -I /coresim-src/src/common \
 	    /coresim-src/sim/cosim/cosim_top.sv \
 	    /coresim-build/gen/iosys_bl616_cosim.v /coresim-build/gen/uart_fixed_sim.v \
 	    /coresim-src/src/iosys/uart_fast.v /coresim-src/src/common/dual_clk_fifo.v \

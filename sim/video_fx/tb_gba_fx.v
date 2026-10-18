@@ -9,10 +9,26 @@
 // pixel spans exactly 4 output columns; the grid column flag fires exactly on the last one;
 // and with the grid on and the scanlines off the scanline darkening is not applied.
 `timescale 1ns/1ps
+`include "variant.vh"
 
 module tb_gba_fx;
 
     localparam FX_LAT = 11;
+`ifdef HZ120
+    localparam [9:0] LAST_ROW = 10'd524;   // rows per HDMI frame
+    localparam [10:0] LAST_COL = 11'd720;  // active columns
+    localparam integer COLS_PER_PX = 3;    // source pixel width at 3x
+    localparam [9:0] WAIT_ROW = 10'd520;   // a row in the blanking, past the logged rows
+    localparam [9:0] ROW_MOD = 10'd80;      // logged-row pitch
+    localparam [9:0] ROW_TOP = 10'd0;       // picture starts at row 0
+`else
+    localparam [9:0] LAST_ROW = 10'd749;
+    localparam [10:0] LAST_COL = 11'd1280;
+    localparam integer COLS_PER_PX = 4;
+    localparam [9:0] WAIT_ROW = 10'd730;
+    localparam [9:0] ROW_MOD = 10'd100;
+    localparam [9:0] ROW_TOP = 10'd40;
+`endif
 
     reg clk = 0, clk27 = 0;
     always #10 clk = ~clk;                      // 50 MHz
@@ -87,13 +103,13 @@ module tb_gba_fx;
             if (nbad_grid <= 5)
                 $display("scanline darkening with grid on, scanlines off at cx=%0d cy=%0d", dut.cx, dut.cy);
         end
-        // the integer geometry: each source pixel is 4 output columns, the column flag is
+        // the integer geometry: each source pixel is COLS_PER_PX output columns, the column flag is
         // the last of them (the flag trails the delayed xx step by the 2 buffer/rgb_pre stages)
         col_now = dut.fx.col_last_in;
         if (checking && dut.sl_geom && !ov && !$isunknown({col_now, xx_d1, xx_d2}) && dut.active_d) begin
             cyc = cyc + 1;
             if (!$isunknown(dut.xx_ov) && !$isunknown(xx_r) && dut.xx_ov !== xx_r) begin
-                if (cyc !== 4) begin
+                if (cyc !== COLS_PER_PX) begin
                     nbad_grid = nbad_grid + 1;
                     if (nbad_grid <= 5)
                         $display("source pixel %0d columns wide at cx=%0d cy=%0d", cyc, dut.cx, dut.cy);
@@ -109,8 +125,8 @@ module tb_gba_fx;
             cyc = 0;
         end
         xx_d2 = xx_d1; xx_d1 = xx_r; xx_r = dut.xx_ov;
-        in_row = (dut.cy % 100 < 4) && dut.cy < 10'd720 && dut.cy >= 10'd40;
-        if (logging && in_row && dut.cx < 11'd1280) begin
+        in_row = (dut.cy % ROW_MOD < 4) && dut.cy < LAST_ROW && dut.cy >= ROW_TOP;
+        if (logging && in_row && dut.cx < LAST_COL) begin
             $fwrite(fd, "%h %0d %0d %0d %0d %0d %0d %0d %h %h\n", vcfg, dut.cx, dut.cy,
                     old_in[24], old_in[25], old_in[29:28], old_in[26], old_in[27], old_in[23:0], dut.rgb);
             nlog = nlog + 1;
@@ -119,8 +135,8 @@ module tb_gba_fx;
 
     task wait_row730;
         begin
-            while (dut.cy == 10'd730) @(posedge clk_pixel);
-            while (dut.cy != 10'd730) @(posedge clk_pixel);
+            while (dut.cy == WAIT_ROW) @(posedge clk_pixel);
+            while (dut.cy != WAIT_ROW) @(posedge clk_pixel);
         end
     endtask
 

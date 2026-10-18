@@ -10,9 +10,16 @@ endmodule
 
 // 74.25 MHz pixel clock stand-in for pll_74 (exact half period in ns).
 // CLK16H/CLKP50H come from the bench -D flags; the pixel clock is exact.
+// HZ120 (from variant.vh on the include path) runs the 54 MHz pixel clock.
+`include "variant.vh"
+
 module pll_74 (input clkin, output reg clkout0, output reg clkout1);
     initial begin clkout0 = 0; clkout1 = 0; end
+`ifdef HZ120
+    always #9.2592593 clkout0 = ~clkout0;   // 54 MHz (480p120)
+`else
     always #6.7340065 clkout0 = ~clkout0;   // 74.25 MHz
+`endif
 endmodule
 
 // 240x160x18 frame buffer block RAM (one clock of read latency, like fb.v).

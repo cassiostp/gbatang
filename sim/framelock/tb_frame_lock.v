@@ -3,14 +3,29 @@
 // GBA frame (gba_gpu_timing.v: 1008+224 mclk per line, 228 lines; vblank on
 // the 159->160 transition). The model's mclk counting is gated by the DUT's
 // release toggle through an exact copy of the gbatang_top halt block, and by
-// pause_tb like the menu pause.
+// pause_tb like the menu pause. The HDMI output runs at twice the game rate:
+// every game frame is read twice, so settled inserted reads may show data up
+// to a game frame old; anything older is a tear.
+// (HZ120, from variant.vh on the include path, runs the 480p120 lock: the
+// hframe counts below are HDMI frames, two per game frame.)
 //
 // -D flags: CLK16H/CLKP50H (half periods in ns), EXPECT_LOCK (1: the GBA runs
 // faster than HDMI and must lock; 0: current silicon, must observably fail),
 // STD (hdmi std_timing input value).
 `timescale 1ns/1ps
+`include "variant.vh"
 
 module tb_frame_lock;
+
+`ifdef HZ120
+    localparam [9:0] LAST_ROW = 10'd524;
+    localparam integer START_OK = 8, STEADY_N = 24, PAUSE_N = 6, PPS_N = 8, PRST_N = 12;
+    localparam integer SKIP = 4;
+`else
+    localparam [9:0] LAST_ROW = 10'd749;
+    localparam integer START_OK = 4, STEADY_N = 12, PAUSE_N = 3, PPS_N = 4, PRST_N = 6;
+    localparam integer SKIP = 2;
+`endif
 
     reg clk16 = 0, clk50 = 0, clk27 = 0;
     always #`CLK16H clk16 = ~clk16;
@@ -134,13 +149,13 @@ module tb_frame_lock;
     integer i, j;
     reg was_halt = 0;
     reg [9:0] last_cy = 0;
-    integer skip_until = 2;     // forgive hframes below this (startup/pause/reset)
+    integer skip_until = SKIP;  // forgive hframes below this (startup/pause/reset)
 
     always @(posedge clk_pixel) begin
         if (!resetn) begin
             hframe <= -1;
         end else begin
-            if (last_cy == 10'd749 && dut.cy == 10'd0)
+            if (last_cy == LAST_ROW && dut.cy == 10'd0)
                 hframe <= hframe + 1;
             last_cy <= dut.cy;
         end
@@ -232,7 +247,7 @@ module tb_frame_lock;
             (min_age > 1e17) ? -1.0 : min_age / 1000.0,
             (max_age < 0) ? -1.0 : max_age / 1000.0, stale, audio_bad, audio_n);
         case (phase)
-        0: if (hframe >= 4) begin
+        0: if (hframe >= START_OK) begin
             if (`EXPECT_LOCK) begin
                 if (halts_this < 4 || vblanks_this < 4) begin
                     $display("FAIL: startup did not lock (halts=%0d vblanks=%0d)", halts_this, vblanks_this);
@@ -242,7 +257,7 @@ module tb_frame_lock;
             phase <= 1; f_mark <= hframe;
             halts_this <= 0; vblanks_this <= 0; halt_acc <= 0; stale <= 0; min_age <= 1e18; max_age <= -1e18;
         end
-        1: if (hframe - f_mark >= 12) begin
+        1: if (hframe - f_mark >= STEADY_N) begin
             $display("STEADY halts=%0d vblanks=%0d halt_us_per_frame=%0.2f stale=%0d",
                 halts_this, vblanks_this, halt_acc / 12.0 / 1000.0, stale);
             if (`EXPECT_LOCK) begin
@@ -257,14 +272,14 @@ module tb_frame_lock;
         end
         2: begin
             pause_frames <= pause_frames + 1;
-            if (pause_frames >= 3) begin
+            if (pause_frames >= PAUSE_N) begin
                 pause_tb <= 1'b0;
-                skip_until <= hframe + 2;
+                skip_until <= hframe + SKIP;
                 phase <= 3; f_mark <= hframe;
                 halts_this <= 0; vblanks_this <= 0; halt_acc <= 0; stale <= 0; min_age <= 1e18; max_age <= -1e18;
             end
         end
-        3: if (hframe - f_mark >= 4) begin
+        3: if (hframe - f_mark >= PPS_N) begin
             $display("POSTPAUSE halts=%0d vblanks=%0d stale=%0d", halts_this, vblanks_this, stale);
             if (`EXPECT_LOCK && vblanks_this < 3) begin
                 $display("FAIL: post-pause no progress (vblanks=%0d)", vblanks_this);
@@ -274,7 +289,7 @@ module tb_frame_lock;
             need_reset <= 1'b1;
             halts_this <= 0; vblanks_this <= 0; halt_acc <= 0; stale <= 0; min_age <= 1e18; max_age <= -1e18;
         end
-        5: if (hframe - f_mark >= 6) begin
+        5: if (hframe - f_mark >= PRST_N) begin
             $display("POSTRESET halts=%0d vblanks=%0d stale=%0d", halts_this, vblanks_this, stale);
             if (`EXPECT_LOCK && vblanks_this < 5) begin
                 $display("FAIL: post-reset no progress (vblanks=%0d)", vblanks_this);
@@ -288,7 +303,7 @@ module tb_frame_lock;
 
     always @(posedge clk_pixel) begin
         cy_prev2 <= dut.cy;
-        if (resetn && cy_prev2 == 10'd749 && dut.cy == 10'd0)
+        if (resetn && cy_prev2 == LAST_ROW && dut.cy == 10'd0)
             frame_tick;
     end
 
@@ -297,7 +312,7 @@ module tb_frame_lock;
         resetn = 1'b0;
         #200000;
         resetn = 1'b1;
-        skip_until = hframe + 2;
+        skip_until = hframe + SKIP;
         f_mark = hframe;
         phase = 5;
     end
@@ -326,9 +341,13 @@ module tb_frame_lock;
         $finish;
     end
 
-    // watchdog: ~60 HDMI frames max
+    // watchdog: ~200 HDMI frames max (fewer at 720p, same bound for both)
     initial begin
+`ifdef HZ120
+        #2200000000;
+`else
         #1100000000;
+`endif
         $display("tb_frame_lock: FAIL (watchdog)");
         $finish;
     end

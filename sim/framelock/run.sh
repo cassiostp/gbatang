@@ -1,15 +1,17 @@
 #!/bin/sh
-# Frame-lock sims (iverilog). From this directory:  ./run.sh
+# Frame-lock sims (iverilog in tangcore-iv:1). From this directory:
+#   ./run.sh [standard|hz120|both]
 #   tb_frame_lock   the real gba2hdmi (138K BRAM path) with a faithful
 #                   hdmi.sv stand-in (hdmi_frame_stub.v: identical cx/cy and
 #                   frame_width semantics; iverilog cannot parse the real
-#                   packet_assembler.sv) at the native htotal 1657, against a
-#                   line-cited model of the GBA frame (1008+224 mclk/line, 228
-#                   lines), gated by an exact copy of the gbatang_top halt
-#                   block. Startup, 12-frame steady lock, 3-frame menu pause,
-#                   200 us core reset. The real hdmi.sv is elaborated under
-#                   Verilator instead (see below): it parses the SV the
-#                   iverilog image cannot.
+#                   packet_assembler.sv) at the native htotal (1657 at 720p,
+#                   861 at 480p120), against a line-cited model of the GBA frame
+#                   (1008+224 mclk/line, 228 lines), gated by an exact copy of
+#                   the gbatang_top halt block. Startup, steady lock, menu pause,
+#                   core reset. The hz120 variant reads every game frame twice
+#                   (lit, then inserted), so its hframe counts are doubled.
+#                   The real hdmi.sv is elaborated under Verilator instead (see
+#                   below): it parses the SV the iverilog image cannot.
 #
 # Three clock configs (half periods in ns):
 #   138K      clk16 16.8125 MHz (27*67.25/108, the round-2 PLL), clk50
@@ -22,17 +24,37 @@
 set -e
 cd "$(dirname "$0")"
 RTL=../../src
-IV="docker run --rm --name r6vid_gba_framelock --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/framelock tangcore-iv:1"
+# See sim/scanlines/run.sh: the variant header is materialised and -I'd.
+# Do not run two variants concurrently in one checkout.
+set_variant() {
+    cp -f "$RTL/variant/$1/variant.vh" "$RTL/common/variant.vh"
+}
+VINCL="$RTL/common"
+IV="docker run --rm --name r6hz120vgba_framelock --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/framelock tangcore-iv:1"
 HDMI="hdmi_frame_stub.v"
-$IV sh -c 'iverilog -g2012 -o tb_138k.out tb_frame_lock.v prim_stubs.v '"$HDMI"' \
-    '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v \
-    -DCLK16H=29.7369 -DCLKP50H=9.9133 -DEXPECT_LOCK=1 -DSTD=0 \
-    && vvp tb_138k.out' 2>&1 | tail -40
-$IV sh -c 'iverilog -g2012 -o tb_60k.out tb_frame_lock.v prim_stubs.v '"$HDMI"' \
-    '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v \
-    -DCLK16H=29.7289 -DCLKP50H=9.9096 -DEXPECT_LOCK=1 -DSTD=0 \
-    && vvp tb_60k.out' 2>&1 | tail -15
-$IV sh -c 'iverilog -g2012 -o tb_slow.out tb_frame_lock.v prim_stubs.v '"$HDMI"' \
-    '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v \
-    -DCLK16H=29.8507 -DCLKP50H=9.9502 -DEXPECT_LOCK=0 -DSTD=0 \
-    && vvp tb_slow.out' 2>&1 | tail -15
+run_clocks() {
+    set_variant $1
+    OUT=$2
+    $IV sh -c 'iverilog -g2012 -o '"$OUT"'_138k.out tb_frame_lock.v -I '"$VINCL"' prim_stubs.v '"$HDMI"' \
+        '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v \
+        -DCLK16H=29.7369 -DCLKP50H=9.9133 -DEXPECT_LOCK=1 -DSTD=0 \
+        && vvp '"$OUT"'_138k.out' 2>&1 | tail -40
+    $IV sh -c 'iverilog -g2012 -o '"$OUT"'_60k.out tb_frame_lock.v -I '"$VINCL"' prim_stubs.v '"$HDMI"' \
+        '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v \
+        -DCLK16H=29.7289 -DCLKP50H=9.9096 -DEXPECT_LOCK=1 -DSTD=0 \
+        && vvp '"$OUT"'_60k.out' 2>&1 | tail -15
+    $IV sh -c 'iverilog -g2012 -o '"$OUT"'_slow.out tb_frame_lock.v -I '"$VINCL"' prim_stubs.v '"$HDMI"' \
+        '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v \
+        -DCLK16H=29.8507 -DCLKP50H=9.9502 -DEXPECT_LOCK=0 -DSTD=0 \
+        && vvp '"$OUT"'_slow.out' 2>&1 | tail -15
+}
+case "${1:-both}" in
+    standard|both)
+        run_clocks standard tb_std
+        ;;
+esac
+case "${1:-both}" in
+    hz120|both)
+        run_clocks hz120 tb_hz120
+        ;;
+esac

@@ -18,6 +18,8 @@
 set -e
 cd "$(dirname "$0")"
 RTL=../../src
+# Runner: simrun when present (persistent ccache + full-core env), else plain docker.
+DOCKER_RUN=${DOCKER_RUN:-$(command -v simrun >/dev/null 2>&1 && echo simrun || echo "docker run --rm")};
 HDMI=../scanlines/hdmi_stub.v
 STUBS=../scanlines/gba_stubs.v
 # See sim/scanlines/run.sh: the variant header is materialised and -I'd.
@@ -26,7 +28,7 @@ set_variant() {
     cp -f "$RTL/variant/$1/variant.vh" "$RTL/common/variant.vh"
 }
 VINCL="$RTL/common"
-IV="docker run --rm --name r6hz120vgba_videofx --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/video_fx tangcore-iv:1"
+IV="$DOCKER_RUN --name ${SIM_PREFIX:-sim$$}_r6hz120vgba_videofx --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/video_fx tangcore-iv:1"
 if command -v python3 >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
     sh prep.sh
 fi

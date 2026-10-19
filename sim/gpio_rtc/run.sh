@@ -7,11 +7,13 @@
 set -eu
 cd "$(dirname "$0")"
 SRC=../../src
+# Runner: simrun when present (persistent ccache + full-core env), else plain docker.
+DOCKER_RUN=${DOCKER_RUN:-$(command -v simrun >/dev/null 2>&1 && echo simrun || echo "docker run --rm")};
 run() {
     if command -v iverilog >/dev/null 2>&1; then
         sh -c "$1"
     elif docker image inspect tangcore-iv:1 >/dev/null 2>&1; then
-        docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/../..":/w \
+        $DOCKER_RUN --user "$(id -u):$(id -g)" -v "$PWD/../..":/w \
             -w /w/sim/gpio_rtc tangcore-iv:1 sh -c "$1"
     else
         echo "need iverilog or docker (tangcore-iv:1)" >&2; exit 1

@@ -22,5 +22,5 @@ is up to date); the model computes the tables itself.
 from `$BASE`, the last commit without `video_fx`, and `$SMOFFBASE`, the scaler with
 smoothing). The simulator image used on
 arm64 (`tangcore-iv:1`) has neither: run `sh prep.sh` on the host, then
-`docker run --rm --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/video_fx tangcore-iv:1 sh run.sh`
+`simrun --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/video_fx tangcore-iv:1 sh run.sh`
 and `python3 -I model.py check gba_fx.log` and `python3 -I check_grid.py gba_fx.log 00028000` on the host.

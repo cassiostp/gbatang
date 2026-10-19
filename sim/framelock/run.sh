@@ -24,13 +24,15 @@
 set -e
 cd "$(dirname "$0")"
 RTL=../../src
+# Runner: simrun when present (persistent ccache + full-core env), else plain docker.
+DOCKER_RUN=${DOCKER_RUN:-$(command -v simrun >/dev/null 2>&1 && echo simrun || echo "docker run --rm")};
 # See sim/scanlines/run.sh: the variant header is materialised and -I'd.
 # Do not run two variants concurrently in one checkout.
 set_variant() {
     cp -f "$RTL/variant/$1/variant.vh" "$RTL/common/variant.vh"
 }
 VINCL="$RTL/common"
-IV="docker run --rm --name r6hz120vgba_framelock --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/framelock tangcore-iv:1"
+IV="$DOCKER_RUN --name ${SIM_PREFIX:-sim$$}_r6hz120vgba_framelock --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/framelock tangcore-iv:1"
 HDMI="hdmi_frame_stub.v"
 run_clocks() {
     set_variant $1

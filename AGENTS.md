@@ -62,6 +62,11 @@ The top halts the GBA (`frame_halt`, `core_hold`) on the first vblank trigger an
 
 ## Simulations (`sim/*/README.md` says how to run where it exists; iverilog)
 
+Sim scripts use `simrun` when it is on PATH (else `docker run --rm`);
+set `SIM_PREFIX` to namespace container names when sharing the machine.
+`simrun` is an optional local helper (persistent ccache + full-core env),
+not part of the repositories.
+
 - `audio`: real `gba_sound` under a `core_hold` enable pattern (pitch, mixer-hold, DMA ticks, no-click).
 - `cosim`: Verilator `iosys_bl616`+`sdram_gba` + chip for firmware co-sim (`firmware host/README.md` RTL backend).
 - `fastuart`: `FAST_UART 0x15/0x16` at wire level, 8 Mbaud + CRC + watchdog.

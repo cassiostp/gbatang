@@ -13,6 +13,8 @@
 set -e
 cd "$(dirname "$0")"
 RTL=../../src
+# Runner: simrun when present (persistent ccache + full-core env), else plain docker.
+DOCKER_RUN=${DOCKER_RUN:-$(command -v simrun >/dev/null 2>&1 && echo simrun || echo "docker run --rm")};
 # The build variant: run.sh materialises src/common/variant.vh (git-ignored,
 # as build.tcl does) before compiling, and compiles with -I on src/common, so
 # the RTL and the testbenches see the same variant.vh Gowin sees. Do not run
@@ -21,7 +23,7 @@ set_variant() {
     cp -f "$RTL/variant/$1/variant.vh" "$RTL/common/variant.vh"
 }
 VINCL="$RTL/common"
-IV="docker run --rm --name r6hz120vgba_scan --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/scanlines tangcore-iv:1"
+IV="$DOCKER_RUN --name ${SIM_PREFIX:-sim$$}_r6hz120vgba_scan --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/scanlines tangcore-iv:1"
 case "${1:-both}" in
     standard|both)
         set_variant standard

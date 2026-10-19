@@ -21,10 +21,12 @@ set -e
 cd "$(dirname "$0")"
 RTL=../../src
 SHADOW=$PWD/shadow
+# Runner: simrun when present (persistent ccache + full-core env), else plain docker.
+DOCKER_RUN=${DOCKER_RUN:-$(command -v simrun >/dev/null 2>&1 && echo simrun || echo "docker run --rm")};
 python3 mkshadow.py "$RTL" "$SHADOW"
 # See sim/scanlines/run.sh: the variant header is materialised, not -I'd.
 # Do not run two variants concurrently in one checkout.
-IV="docker run --rm --name r6hz120vgba_audio --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/audio tangcore-iv:1"
+IV="$DOCKER_RUN --name ${SIM_PREFIX:-sim$$}_r6hz120vgba_audio --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/audio tangcore-iv:1"
 run_variant() {
     cp -f "$RTL/variant/$1/variant.vh" "$RTL/common/variant.vh"
     OUT=$2

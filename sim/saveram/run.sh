@@ -9,6 +9,8 @@
 # not, so run.sh compiles a sim-only copy with it softened.
 set -e
 RTL=../../src
+# Runner: simrun when present (persistent ccache + full-core env), else plain docker.
+DOCKER_RUN=${DOCKER_RUN:-$(command -v simrun >/dev/null 2>&1 && echo simrun || echo "docker run --rm")};
 # textdisp.v includes the build-variant header, materialised here (git-ignored,
 # as build.tcl does for Gowin): the save path is variant-independent, so this
 # bench always uses the standard variant.
@@ -66,7 +68,7 @@ done
 
 run() {                                        # compile + run one testbench
     if docker image inspect tangcore-iv:1 >/dev/null 2>&1; then
-        docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/w" -v "$PWD/$RTL:/src:ro" -w /w \
+        $DOCKER_RUN --user "$(id -u):$(id -g)" -v "$PWD:/w" -v "$PWD/$RTL:/src:ro" -w /w \
             --entrypoint sh tangcore-iv:1 \
             -c "iverilog -g2012 $IVFLAGS -o $1 $2 && vvp $1 $EXTRA"
     else

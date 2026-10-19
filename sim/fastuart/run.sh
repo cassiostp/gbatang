@@ -7,13 +7,15 @@
 set -e
 cd "$(dirname "$0")"
 RTL=../../src
+# Runner: simrun when present (persistent ccache + full-core env), else plain docker.
+DOCKER_RUN=${DOCKER_RUN:-$(command -v simrun >/dev/null 2>&1 && echo simrun || echo "docker run --rm")};
 sed -e 's/input reg  \[7:0\] kbd_data/input [7:0] kbd_data/' \
     -e 's/^\( *\)kbd_data <= rx_data;/\1;                       \/\/ sim: kbd path idle/' \
     $RTL/iosys/iosys_bl616.v > iosys_sim.v
 
 run() {                                        # compile + run one testbench
     if docker image inspect tangcore-iv:1 >/dev/null 2>&1; then
-        docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/w" -v "$PWD/$RTL:/src:ro" -w /w \
+        $DOCKER_RUN --user "$(id -u):$(id -g)" -v "$PWD:/w" -v "$PWD/$RTL:/src:ro" -w /w \
             --entrypoint sh tangcore-iv:1 \
             -c "iverilog -g2012 -DSIM -o $1 $2 && vvp $1"
     else

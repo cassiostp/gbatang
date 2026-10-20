@@ -34,7 +34,23 @@ esac
 case "${1:-both}" in
     hz120|both)
         set_variant hz120
+        # the Lottes table the modes-2/3 checks read: committed, verified
+        # fresh here (host-side script, python3 present)
+        python3 ../../tools/bfi_lottes.py --hex | cmp -s bfi_lottes.hex - || { echo "bfi_lottes.hex is stale: regenerate with tools/bfi_lottes.py --hex"; exit 1; }
         $IV sh -c 'iverilog -g2012 -I '"$VINCL"' -o tb_gba_scaler_hz120.out tb_gba_scaler_hz120.v hdmi_stub.v gba_stubs.v '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v && vvp tb_gba_scaler_hz120.out'
         $IV sh -c 'iverilog -g2012 -I '"$VINCL"' -o tb_textdisp.out tb_textdisp.v '"$RTL"'/iosys/textdisp.v && vvp tb_textdisp.out'
+        # negative control: the same binary with one corrupted table entry
+        # (code 0x80, exercised by the top test row) must fail the exact
+        # value check. Dumps land in negative/ so the report frames are
+        # untouched.
+        mkdir -p negative
+        cp tb_gba_scaler_hz120.out bfi_lottes.hex negative/
+        sed -i '129s/^../ff/' negative/bfi_lottes.hex
+        if $IV sh -c 'cd negative && vvp tb_gba_scaler_hz120.out > neg.log 2>&1'; then
+            echo "FAIL: negative control passed with a corrupted table"; exit 1;
+        else
+            grep -q "FAIL: mode" negative/neg.log || { echo "FAIL: negative control failed without the value check"; cat negative/neg.log; exit 1; }
+            echo "negative control: corrupted table fails as expected"
+        fi
         ;;
 esac

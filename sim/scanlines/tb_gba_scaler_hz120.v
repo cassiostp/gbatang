@@ -4,9 +4,11 @@
 // Checks, for each setting, every output row of the frame against the model of
 // src/scanlines.v: which source line it shows, border rows, dark rows and the darkened
 // colour; and the horizontal extent of the picture.
-// Then the BFI modes (video_config[21:20]): lit/inserted alternation, black/dim
-// inserted frames, mode 3 as black, the overlay exempt, and one retention phase
-// swap (forced counter) alternating the duplicate.
+// Then the BFI modes (video_config[21:20]): lit/inserted alternation, black
+// inserted frames, the Lottes bright/beam pair with exact per-pixel checks
+// against sim/scanlines/bfi_lottes.hex (verified against tools/bfi_lottes.py),
+// the overlay exempt, and one retention phase swap (forced counter)
+// alternating the duplicate.
 // Fails with $fatal on the first mismatch.
 `timescale 1ns/1ps
 
@@ -239,6 +241,20 @@ module tb_gba_scaler;
 
     // BFI: sample dut.rgb at the picture centre (cy 240, cx 361: source line 80)
     // in a chosen frame parity. Assumes scanlines off and no colour FX.
+    // Modes 2/3 (Lottes HI/LO) exact checks: the expected HI/LO pair comes
+    // from bfi_lottes.hex ("HHLL" per input code) indexed by the known
+    // static stimulus colour, with the HI side from dut.bfi_phase
+    // (no swap runs inside the bench).
+    reg [15:0] HEXRAW [0:255];
+    reg [7:0] THI [0:255];
+    reg [7:0] TLO [0:255];
+    initial begin : load_hex
+        integer ci;
+        $readmemh("bfi_lottes.hex", HEXRAW);
+        for (ci = 0; ci < 256; ci = ci + 1) begin
+            THI[ci] = HEXRAW[ci][15:8]; TLO[ci] = HEXRAW[ci][7:0];
+        end
+    end
     // Frame dumps for the report: the settled img as PPM (P3 ASCII).
     task dump_ppm(input [8*64-1:0] path);
         integer fd, dx, dy;
@@ -261,6 +277,30 @@ module tb_gba_scaler;
             rgb = dut.rgb;
         end
     endtask
+    // sample_at(cy_want, ins, rgb, eff): dut.rgb at (cy_want, cx 361) on the
+    // next frame with bfi_ins == ins; eff is the effective (phase-applied)
+    // inserted flag for the expectation below.
+    task sample_at(input [9:0] cy_want, input ins, output [23:0] rgb, output eff);
+        begin
+            do begin
+                @(posedge clk_pixel);
+            end while (!(dut.cy == cy_want && dut.cx == 11'd361 && dut.bfi_ins == ins));
+            rgb = dut.rgb;
+            eff = ins ^ dut.bfi_phase;
+        end
+    endtask
+    // expected Lottes side for sample_at: mode 2 shows HI on lit refreshes
+    // everywhere; mode 3 flips the parity per half (split at cy 240).
+    function [23:0] want_side(input [23:0] lit, input eff, input [1:0] mode, input [9:0] cy_want);
+        reg [23:0] hi, lo;
+        reg show;
+        begin
+            hi = {THI[lit[23:16]], THI[lit[15:8]], THI[lit[7:0]]};
+            lo = {TLO[lit[23:16]], TLO[lit[15:8]], TLO[lit[7:0]]};
+            show = ~eff ^ ((mode == 2'd3) & (cy_want >= 10'd240));
+            want_side = show ? hi : lo;
+        end
+    endfunction
 
     task bfi_fail(input [8*60-1:0] what, input [23:0] got, input [23:0] want);
         begin
@@ -316,16 +356,42 @@ module tb_gba_scaler;
         sample_frame(1'b1, ins_rgb);
         if (ins_rgb !== 24'h000000) bfi_fail("mode 1 inserted", ins_rgb, 24'h000000);
         $display("gba2hdmi BFI mode 1 (black): ok");
-        set_bfi(2'd2);                          // dim inserted frame
-        sample_frame(1'b0, lit_rgb);
-        if (lit_rgb !== want_lit) bfi_fail("mode 2 lit", lit_rgb, want_lit);
-        sample_frame(1'b1, ins_rgb);
-        if (ins_rgb !== half_rgb(want_lit)) bfi_fail("mode 2 inserted", ins_rgb, half_rgb(want_lit));
-        $display("gba2hdmi BFI mode 2 (dim): ok");
-        set_bfi(2'd3);                          // rolling: treated as black here
-        sample_frame(1'b1, ins_rgb);
-        if (ins_rgb !== 24'h000000) bfi_fail("mode 3 inserted", ins_rgb, 24'h000000);
-        $display("gba2hdmi BFI mode 3 (as black): ok");
+        // Modes 2 (bright) / 3 (beam): exact Lottes HI/LO values at a top
+        // row (cy 100: source line 33) and a bottom row (cy 301: source
+        // line 100), both parities, plus same-parity repeats (static
+        // stimulus: identical two frames apart). want_side encodes the
+        // mode's parity (global for mode 2, flipped per half for mode 3),
+        // so these six exact checks prove the flip; both rows are
+        // discriminating (HI != LO) by construction of the stimulus.
+        begin : bright_beam
+            reg [23:0] s0, s1, s0b, s1b, rpt, wlit, wwant;
+            reg e0, e1;
+            integer m;
+            for (m = 2; m <= 3; m = m + 1) begin
+                set_bfi(m[1:0]);
+                // top half
+                wlit = to_rgb(src_color(33));
+                sample_at(10'd100, 1'b0, s0, e0);
+                wwant = want_side(wlit, e0, m[1:0], 10'd100);
+                if (s0 !== wwant) bfi_fail("mode top lit", s0, wwant);
+                sample_at(10'd100, 1'b1, s1, e1);
+                wwant = want_side(wlit, e1, m[1:0], 10'd100);
+                if (s1 !== wwant) bfi_fail("mode top inserted", s1, wwant);
+                sample_at(10'd100, 1'b0, rpt, e0);
+                if (rpt !== s0) bfi_fail("mode top lit repeat", rpt, s0);
+                // bottom half
+                wlit = to_rgb(src_color(100));
+                sample_at(10'd301, 1'b0, s0b, e0);
+                wwant = want_side(wlit, e0, m[1:0], 10'd301);
+                if (s0b !== wwant) bfi_fail("mode bottom lit", s0b, wwant);
+                sample_at(10'd301, 1'b1, s1b, e1);
+                wwant = want_side(wlit, e1, m[1:0], 10'd301);
+                if (s1b !== wwant) bfi_fail("mode bottom inserted", s1b, wwant);
+                sample_at(10'd301, 1'b1, rpt, e1);
+                if (rpt !== s1b) bfi_fail("mode bottom inserted repeat", rpt, s1b);
+                $display("gba2hdmi BFI mode %0d (bright/beam exact, top+bottom): ok", m);
+            end
+        end
         // the overlay stays lit under BFI
         ov = 1;
         set_bfi(2'd1);

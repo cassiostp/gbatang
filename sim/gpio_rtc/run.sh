@@ -13,7 +13,7 @@ run() {
     if command -v iverilog >/dev/null 2>&1; then
         sh -c "$1"
     elif docker image inspect tangcore-iv:1 >/dev/null 2>&1; then
-        $DOCKER_RUN --user "$(id -u):$(id -g)" -v "$PWD/../..":/w \
+        $DOCKER_RUN --name "${SIM_PREFIX:-sim$$}_run" --user "$(id -u):$(id -g)" -v "$PWD/../..":/w \
             -w /w/sim/gpio_rtc tangcore-iv:1 sh -c "$1"
     else
         echo "need iverilog or docker (tangcore-iv:1)" >&2; exit 1

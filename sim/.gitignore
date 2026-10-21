@@ -1,0 +1,4 @@
+.regress/
+
+audio/build/
+__pycache__/

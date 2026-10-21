@@ -27,12 +27,12 @@ CCACHE_OFF :=
 else
 CCACHE_OFF := -e CCACHE_DISABLE=1
 endif
-DOCKER := $(DOCKER_RUN) --user "$(shell id -u):$(shell id -g)" $(CCACHE_OFF)
+DOCKER := $(DOCKER_RUN) --name "$${SIM_PREFIX:-sim$$$$}_cosim" --user "$(shell id -u):$(shell id -g)" $(CCACHE_OFF)
 VMOUNT := -v "$(COSIM)/../..:/coresim-src:ro" -v "$(COSIM)/build:/coresim-build" -w /coresim-build
 VERILATOR := $(DOCKER) $(VMOUNT) verilator/verilator:latest
 IVERILOG := $(DOCKER) -v "$(COSIM)/../..:/coresim-src:ro" -v "$(COSIM)/build:/coresim-build" -w /coresim-build tangcore-iv:1
 
-.PHONY: model lint clean
+.PHONY: model lint clean variant
 
 # The ONLY sanctioned difference from the core's real iosys_bl616.v: the
 # CORE_ID parameter becomes the cosim_core_id input, standing in for
@@ -91,13 +91,13 @@ COSIM_SRCS := /coresim-src/sim/cosim/cosim_top.sv \
 
 # cosim tests the standard save/menu path, so the variant header it compiles
 # (textdisp.v includes it) is the standard one, materialised in src/common
-# like build.tcl does for Gowin (git-ignored).
-$(GEN)/variant.vh: $(RTL)/variant/standard/variant.vh
+# like build.tcl does for Gowin (git-ignored). Always refresh it: video
+# benches may have replaced it with hz120 since the previous model build.
+variant: $(RTL)/variant/standard/variant.vh
 	mkdir -p $(GEN)
 	cp -f $(RTL)/variant/standard/variant.vh $(RTL)/common/variant.vh
-	touch $@
 
-model: $(GEN)/iosys_bl616_cosim.v $(GEN)/sdram_gba_sim.v $(GEN)/uart_fixed_sim.v $(GEN)/variant.vh
+model: $(GEN)/iosys_bl616_cosim.v $(GEN)/sdram_gba_sim.v $(GEN)/uart_fixed_sim.v variant
 	mkdir -p $(OBJ) $(COSIM)/build/runtime
 	# -Wno-*: the core's own RTL carries pre-existing style Verilator flags
 	# (implicit nets, width mismatches, partial cases, undriven pins); the
@@ -124,7 +124,7 @@ model: $(GEN)/iosys_bl616_cosim.v $(GEN)/sdram_gba_sim.v $(GEN)/uart_fixed_sim.v
 	test -f $(COSIM)/build/runtime/verilated.h
 	ls $(OBJ)/Vcosim_top__ALL.a
 
-lint: $(GEN)/iosys_bl616_cosim.v $(GEN)/sdram_gba_sim.v $(GEN)/uart_fixed_sim.v $(GEN)/variant.vh
+lint: $(GEN)/iosys_bl616_cosim.v $(GEN)/sdram_gba_sim.v $(GEN)/uart_fixed_sim.v variant
 	$(IVERILOG) iverilog -g2012 -DCOSIM -o /dev/null -s cosim_top \
 	    -I /coresim-src/src/common \
 	    /coresim-src/sim/cosim/cosim_top.sv \

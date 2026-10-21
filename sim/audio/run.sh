@@ -1,6 +1,8 @@
 #!/bin/sh
-# Audio-hold sim (iverilog in tangcore-iv:1). From this directory:
+# Audio-hold sim (Verilator timing by default). From this directory:
 #   ./run.sh [standard|hz120|both]
+# SIM_ENGINE=iverilog selects the original tangcore-iv:1 path.
+# VERILATOR_THREADS=1 is the default; extra threads slow this small model.
 #   tb_audio_hold   the real gba_sound with a GBA-bus driver: a ch2 square
 #                   wave and a DMA-A stream under the frame-lock ce pattern
 #                   (502 mclk held per 281398-mclk frame at 138K clocks;
@@ -11,7 +13,7 @@
 #                   step exceeds free-run, and the ch3/ch4/length rates
 #                   match GBATEK (all PSG timing derives from clk/4).
 #
-# Tool note: iverilog cannot elaborate the MiSTer-style struct regmap
+# Legacy Icarus note: iverilog cannot elaborate the MiSTer-style struct regmap
 # (assignment patterns crash it), so run.sh first runs mkshadow.py (host
 # python3) to build shadow/ -- bit-identical copies with the regmap struct
 # expanded to a 102-bit vector (same bits, member selects become ranges).
@@ -19,6 +21,11 @@
 # the untouched originals.
 set -e
 cd "$(dirname "$0")"
+case ${SIM_ENGINE:-verilator} in
+    verilator) exec sh ./run_verilator.sh "$@";;
+    iverilog) ;;
+    *) echo "SIM_ENGINE must be verilator or iverilog" >&2; exit 2;;
+esac
 RTL=../../src
 SHADOW=$PWD/shadow
 # Runner: simrun when present (persistent ccache + full-core env), else plain docker.

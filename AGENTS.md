@@ -67,7 +67,7 @@ set `SIM_PREFIX` to namespace container names when sharing the machine.
 `simrun` is an optional local helper (persistent ccache + full-core env),
 not part of the repositories.
 
-- `audio`: real `gba_sound` under a `core_hold` enable pattern (pitch, mixer-hold, DMA ticks, no-click).
+- `audio`: real `gba_sound` under a `core_hold` enable pattern (pitch, mixer-hold, DMA ticks, no-click). The same timing bench runs under Verilator by default (one model thread); `SIM_ENGINE=iverilog` selects the original Icarus path.
 - `cosim`: Verilator `iosys_bl616`+`sdram_gba` + chip for firmware co-sim (`firmware host/README.md` RTL backend).
 - `fastuart`: `FAST_UART 0x15/0x16` at wire level, 8 Mbaud + CRC + watchdog.
 - `framelock`: real `gba2hdmi` at the native htotal vs the GPU-timing model + top halt copy, 138K/60K must lock.
@@ -90,3 +90,5 @@ modes are covered by `tb_gba_scaler_hz120`.
 - The 60K build swaps the whole video stack (no `fb.v`/`gba2hdmi.sv`/`scanlines.v`/`video_fx.v`/`smooth.v`/`pll_74`, adds the DDR3 stack); only `console*` boards define USB.
 - HDMI `hclk5/hclk` constraints are commented out in both SDCs; multicycle `4/3` `clk67<->clk16` and `3/2` `clk16<->clk50` plus the GPU/VRAM `set_false_path` carry the timing.
 - `video_std_timing` is hard `0`; the "needs the PLL fix" comment at `gbatang_top.sv` is still in the tree.
+
+Run `sh sim/regress.sh quick both` before handing work back; `quick` is the minimum check. Use `full both` for all benches, `--only bench1,bench2` to select, and `--list` for tiers, variants, images and typical times. At most two benches run together (users of the shared variant header run serially); logs and tables are in `sim/.regress/`. `TANGCORE_ROMS` defaults to `~/tangcore-test-bundle/test roms`; missing ROMs and unsupported variants SKIP. Keep ROM-derived output local.

@@ -3,10 +3,10 @@ cosim	quick	shared	host	1	cosim	make model && make lint			cmp ../../src/common/v
 saveram	quick	shared	host	73	saveram	sh run.sh				gba-header	tangcore-iv:1 (host wrapper)	""
 tmds	quick	shared	iv	164	tmds	sh run.sh					tangcore-iv:1	""
 scanlines_unit	quick	shared	iv	2	scanlines	iverilog -g2012 -o tb_scanlines_unit.out tb_scanlines.v ../../src/scanlines.v && vvp tb_scanlines_unit.out					tangcore-iv:1	""
-scanlines	full	standard,hz120	host	45	scanlines	sh run.sh {variant}				gba-header	tangcore-iv:1 (host wrapper)	""
-video_fx	full	standard,hz120	host	300	video_fx	sh run.sh {variant}				gba-header	tangcore-iv:1 (host wrapper)	hz120: 720p historical fixtures skipped; 480p FX/grid checks run
-framelock	full	standard,hz120	host	600	framelock	sh run.sh {variant}				gba-header	tangcore-iv:1 + verilator/verilator:latest (host wrapper)	""
-audio	quick	standard,hz120	host	455	audio	sh run.sh {variant}				gba-header	verilator/verilator:latest (SIM_ENGINE=iverilog: tangcore-iv:1)	""
-fastuart	quick	shared	host	54	fastuart	sh run.sh					tangcore-iv:1 (host wrapper)	""
+scanlines	full	standard,hz120	host	245	scanlines	sh run.sh {variant}				gba-header	tangcore-iv:1 (host wrapper)	""
+video_fx	full	standard,hz120	host	2671	video_fx	sh run.sh {variant}				gba-header	tangcore-iv:1 (host wrapper)	hz120: 720p historical fixtures skipped; 480p FX/grid checks run
+framelock	full	standard,hz120	host	1487	framelock	sh run.sh {variant}				gba-header	tangcore-iv:1 (host wrapper)	""
+audio	quick	standard,hz120	host	6	audio	sh run.sh {variant}				gba-header	verilator/verilator:latest (SIM_ENGINE=iverilog: tangcore-iv:1)	""
+fastuart	quick	shared	host	55	fastuart	sh run.sh					tangcore-iv:1 (host wrapper)	""
 gpio_rtc	quick	shared	host	1	gpio_rtc	sh run.sh					tangcore-iv:1 (host wrapper)	""
 bfi_swap_model	quick	hz120	host	1	framelock	python3 bfi_swap_model.py					host (Python3)	Reference phase-swap FSM; no RTL compilation

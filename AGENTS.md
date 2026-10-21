@@ -60,7 +60,7 @@ The top halts the GBA (`frame_halt`, `core_hold`) on the first vblank trigger an
 - `core_config` bits used: `[17]` menu pause, `[6]` freeze, `[5:0]` DDR3 prefetch delay, `[16]` scanlines, `[19:18]` darkness, `[20]` thick, `[21]` out; `video_config` drives `video_fx.v`/`smooth.v`.
 - `iosys_bl616.v` is one of six divergent copies (`cassiostp/tangcore#30`): a fix to one usually belongs in the others.
 
-## Simulations (`sim/*/README.md` says how to run where it exists; iverilog)
+## Simulations (`sim/*/README.md` says how to run where it exists)
 
 Sim scripts use `simrun` when it is on PATH (else `docker run --rm`);
 set `SIM_PREFIX` to namespace container names when sharing the machine.

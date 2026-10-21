@@ -10,8 +10,6 @@
 #                   the gbatang_top halt block. Startup, steady lock, menu pause,
 #                   core reset. The hz120 variant reads every game frame twice
 #                   (lit, then inserted), so its hframe counts are doubled.
-#                   The real hdmi.sv is elaborated under Verilator instead (see
-#                   below): it parses the SV the iverilog image cannot.
 #
 # Three clock configs (half periods in ns):
 #   138K      clk16 16.8125 MHz (27*67.25/108, the round-2 PLL), clk50
@@ -34,21 +32,31 @@ set_variant() {
 VINCL="$RTL/common"
 IV="$DOCKER_RUN --name ${SIM_PREFIX:-sim$$}_r6hz120vgba_framelock --user $(id -u):$(id -g) -v $PWD/../..:/w -w /w/sim/framelock tangcore-iv:1"
 HDMI="hdmi_frame_stub.v"
+run_iv() {
+    LOG=$1; LINES=$2; shift 2
+    # Keep the engine status: piping into tail hides compile/assertion errors.
+    if $IV "$@" >"$LOG" 2>&1; then
+        tail -n "$LINES" "$LOG"
+    else
+        cat "$LOG"
+        return 1
+    fi
+}
 run_clocks() {
     set_variant $1
     OUT=$2
-    $IV sh -c 'iverilog -g2012 -o '"$OUT"'_138k.out tb_frame_lock.v -I '"$VINCL"' prim_stubs.v '"$HDMI"' \
+    run_iv "${OUT}_138k.log" 40 sh -c 'iverilog -g2012 -o '"$OUT"'_138k.out tb_frame_lock.v -I '"$VINCL"' prim_stubs.v '"$HDMI"' \
         '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v \
         -DCLK16H=29.7369 -DCLKP50H=9.9133 -DEXPECT_LOCK=1 -DSTD=0 \
-        && vvp '"$OUT"'_138k.out' 2>&1 | tail -40
-    $IV sh -c 'iverilog -g2012 -o '"$OUT"'_60k.out tb_frame_lock.v -I '"$VINCL"' prim_stubs.v '"$HDMI"' \
+        && vvp '"$OUT"'_138k.out'
+    run_iv "${OUT}_60k.log" 15 sh -c 'iverilog -g2012 -o '"$OUT"'_60k.out tb_frame_lock.v -I '"$VINCL"' prim_stubs.v '"$HDMI"' \
         '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v \
         -DCLK16H=29.7289 -DCLKP50H=9.9096 -DEXPECT_LOCK=1 -DSTD=0 \
-        && vvp '"$OUT"'_60k.out' 2>&1 | tail -15
-    $IV sh -c 'iverilog -g2012 -o '"$OUT"'_slow.out tb_frame_lock.v -I '"$VINCL"' prim_stubs.v '"$HDMI"' \
+        && vvp '"$OUT"'_60k.out'
+    run_iv "${OUT}_slow.log" 15 sh -c 'iverilog -g2012 -o '"$OUT"'_slow.out tb_frame_lock.v -I '"$VINCL"' prim_stubs.v '"$HDMI"' \
         '"$RTL"'/gba2hdmi.sv '"$RTL"'/scanlines.v '"$RTL"'/video_fx.v \
         -DCLK16H=29.8507 -DCLKP50H=9.9502 -DEXPECT_LOCK=0 -DSTD=0 \
-        && vvp '"$OUT"'_slow.out' 2>&1 | tail -15
+        && vvp '"$OUT"'_slow.out'
 }
 case "${1:-both}" in
     standard|both)

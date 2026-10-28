@@ -56,7 +56,7 @@ The top halts the GBA (`frame_halt`, `core_hold`) on the first vblank trigger an
 ## Firmware link
 
 - Core ID 3 (`CORE_ID(3)` in `src/gbatang_top.sv`).
-- Save channel `SAVE_IF=1, SAVE_AW=18, SAVE_SYNC=0` (128 KB window): `sv_addr[17:9]` block, EEPROM/SRAM/Flash512K/Flash1M selected by `config_backup_type`, `sv_rtc` overflow bit, `sv_core_we` dirty; plus `FAST_UART=1` for the negotiated 8 Mbaud ROM stream (`0x15/0x16`, CRC-verified).
+- Save channel `SAVE_IF=1, SAVE_AW=18, SAVE_SYNC=0` (128 KB window): `sv_addr[17:9]` block, EEPROM/SRAM/Flash512K/Flash1M selected by `config_backup_type`, `sv_rtc` overflow bit, `sv_core_we` dirty; plus `FAST_UART=1` for the negotiated 8 Mbaud ROM stream (`0x15/0x16`, CRC-verified). `0x17` link resync drops TX state, restarts the UART dual-clock FIFOs and returns the baud to 2M; a 50 ms TX-drain watchdog restarts the FIFOs if the fast domain stops draining.
 - `core_config` bits used: `[17]` menu pause, `[6]` freeze, `[5:0]` DDR3 prefetch delay, `[16]` scanlines, `[19:18]` darkness, `[20]` thick, `[21]` out; `video_config` drives `video_fx.v`/`smooth.v`.
 - `iosys_bl616.v` is one of six divergent copies (`cassiostp/tangcore#30`): a fix to one usually belongs in the others.
 

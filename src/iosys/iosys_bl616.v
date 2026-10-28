@@ -145,6 +145,18 @@ wire fast_tx_idle;                  // fast domain drained (1 when !FAST_UART)
 reg [1:0] baud_code_c_m = 0;        // apply block -> fast domain: new code
 reg baud_tgl_c_m = 0;               //   held stable, toggled to request it
 
+// One-cycle pulse from RX when command 0x17 (link resync) is accepted.
+// TX drops its frame, the baud state returns to 2M and the UART FIFOs
+// restart -- the firmware sends 0x17 after 1 s of silence, so a wedged
+// link comes back without a reprogram (tangcore#70: a GBA 120 Hz build
+// went silent mid-game until MODE, unmoved by the resync it ignored).
+reg link_resync = 0;
+// Async reset for the two dual-clock FIFOs: resetn, plus a short pulse
+// when the TX drain watchdog or a 0x17 restarts them (both pointer sets
+// together, like power-on). The pulse counter lives by the baud block.
+reg [2:0] fifo_rst_hold = 0;
+wire fifo_rst_n = resetn & (fifo_rst_hold == 0);
+
 // Load check values (FAST_UART only): CRC-32 and count of the rom_do bytes
 // since rom_loading last changed, read back with command 0x16.
 reg [31:0] load_crc = 32'hFFFF_FFFF;
@@ -196,9 +208,9 @@ generate if (FAST_UART) begin : fast_uart
     reg rx_valid_r = 0;
     reg [7:0] rx_data_r = 0;
     dual_clk_fifo #(.DATASIZE(8), .ADDRSIZE(5)) rx_fifo (
-        .clk(clk_fast), .wrst_n(resetn), .wdata(frx_data),
+        .clk(clk_fast), .wrst_n(fifo_rst_n), .wdata(frx_data),
         .winc(frx_valid && !rx_fifo_wfull_w),
-        .rclk(clk), .rrst_n(resetn),
+        .rclk(clk), .rrst_n(fifo_rst_n),
         .rinc(!rx_fifo_empty && !rx_valid_r), .rdata(rx_fifo_rdata),
         .wfull(rx_fifo_wfull_w), .rempty(rx_fifo_empty),
         .almost_full(), .almost_empty()
@@ -226,9 +238,9 @@ generate if (FAST_UART) begin : fast_uart
     reg [7:0] ftx_data = 0;
     wire ftx_pop = !tx_fifo_empty_w && !ftx_busy_w && !ftx_start;
     dual_clk_fifo #(.DATASIZE(8), .ADDRSIZE(5)) tx_fifo (
-        .clk(clk), .wrst_n(resetn), .wdata(tx_data),
+        .clk(clk), .wrst_n(fifo_rst_n), .wdata(tx_data),
         .winc(tx_valid && !tx_fifo_full),
-        .rclk(clk_fast), .rrst_n(resetn),
+        .rclk(clk_fast), .rrst_n(fifo_rst_n),
         .rinc(ftx_pop), .rdata(tx_fifo_rdata),
         .wfull(tx_fifo_full), .rempty(tx_fifo_empty_w),
         .almost_full(tx_fifo_almost_full_w), .almost_empty()
@@ -301,6 +313,15 @@ always @(posedge clk) begin
         baud_req_seen <= 0;
         baud_ack_ok <= 0;
         baud_wd <= 0;
+    end else if (FAST_UART && link_resync) begin
+        // 0x17: baud back to the 2M power-on rate, like the revert below
+        baud_cur <= 0;
+        baud_code_c_m <= 0;
+        baud_tgl_c_m <= ~baud_tgl_c_m;
+        baud_req_pending <= 0;
+        baud_req_seen <= baud_switch_req_tgl;
+        baud_ack_ok <= 0;
+        baud_wd <= 0;
     end else if (FAST_UART) begin
         if (baud_ack_sent)
             baud_ack_ok <= 1;
@@ -331,6 +352,39 @@ always @(posedge clk) begin
                 baud_wd <= baud_wd + 1;
         end else
             baud_wd <= 0;
+    end
+end
+
+// TX drain watchdog + FIFO reset pulse (clk domain). !tx_ready while a
+// dump keeps the TX FIFO capped is normal, but it frees a slot every
+// wire byte (~5 us at 2 Mbaud) and the FIFO empties between blocks:
+// 50 ms of it without a break means the clk/clk_fast crossing stopped
+// draining, after which the frame watchdog can only drop frames into a
+// full FIFO forever. Restart both FIFOs (the bytes queued are lost;
+// the firmware's polls, save retries and resync recover the traffic),
+// on this or on a 0x17 -- without either, the #70 silence needed a
+// reprogram. Inert when FAST_UART=0 (tx_ready then is the transmitter's
+// own busy and there are no FIFOs).
+reg [19:0] txfull_cnt = 0;
+localparam integer TXFULL_MAX = FREQ / 20;          // 50 ms
+always @(posedge clk) begin
+    if (!resetn) begin
+        txfull_cnt <= 0;
+        fifo_rst_hold <= 0;
+    end else if (FAST_UART) begin
+        if (fifo_rst_hold != 0)
+            fifo_rst_hold <= fifo_rst_hold - 1'd1;
+        if (link_resync) begin
+            fifo_rst_hold <= 3'd7;
+            txfull_cnt <= 0;
+        end else if (!tx_ready) begin
+            if (txfull_cnt >= TXFULL_MAX - 1) begin
+                fifo_rst_hold <= 3'd7;
+                txfull_cnt <= 0;
+            end else
+                txfull_cnt <= txfull_cnt + 1'd1;
+        end else
+            txfull_cnt <= 0;
     end
 end
 
@@ -576,6 +630,11 @@ end
 // 0x15 code[7:0]             switch link baud (FAST_UART only; see the
 //   parameter note: reply 0x0C at the old rate, then both ends switch)
 // 0x16                       get load CRC32+count (FAST_UART only, reply 0x0D)
+// 0x17                       link resync: drop TX state, restart the UART
+//   FIFOs and return the baud to 2M. The firmware sends this after 1 s
+//   of silence; RX is already back in RECV_IDLE (RX_GAP_MAX), so it is
+//   not swallowed as a parameter. len is 1; a longer frame is consumed
+//   with no other side effect.
 //
 // Response payloads from FPGA to BL616:
 // 0x01 core_id[7:0]          core ID
@@ -621,7 +680,9 @@ always @(posedge clk) begin
         baud_pending_code <= 0;
         baud_switch_req_tgl <= 0;
         baud_ack_code <= 0;
+        link_resync <= 0;
     end else begin
+        link_resync <= 0;
         rom_do_valid <= 0;
         we <= 0;
         mgmt_write <= 0;
@@ -659,6 +720,8 @@ always @(posedge clk) begin
 
             RECV_CMD: if (rx_valid) begin
                 cmd_reg <= rx_data;
+                if (rx_data == 8'h17)
+                    link_resync <= 1;               // TX/FIFOs drop their state next cycle
                 if (rx_data == 1 || rx_data == 2 || (FAST_UART && rx_data == 'h16))
                     recv_state <= RECV_RESPONSE_REQ;    // core id / config string / load CRC
                 else if (len_reg > 1)
@@ -1189,6 +1252,21 @@ always @(posedge clk) begin
 
             default: send_state <= SEND_IDLE;       // no state may park TX
         endcase
+
+        // 0x17: abandon whatever TX was sending and ack the handshakes so
+        // the next poll is answered (nestang parity). The watchdog block
+        // resets the FIFOs on the same pulse, so a half-sent frame leaves
+        // nothing queued; a cut save block is retried by the firmware.
+        if (link_resync) begin
+            send_state <= SEND_IDLE;
+            response_ack <= response_req;
+            if (SAVE_IF) begin
+                sv_rd_ack <= sv_rd_req;
+                if (!SAVE_SYNC)
+                    sv_abort_stb <= 1;
+            end
+            tx_wdog <= 0;
+        end
     end
 end
 

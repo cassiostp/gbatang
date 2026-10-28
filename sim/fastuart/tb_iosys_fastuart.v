@@ -271,6 +271,40 @@ module tb_iosys_fastuart;
         #120_000_000;                         // > the 100 ms scaled watchdog
         expect_core_id;                       // at 2M: the core reverted itself
 
+        // TX-drain wedge (tangcore#70 shape: wire silent while the game
+        // runs, only a reprogram cured it). Park the fast transmitter --
+        // the TX FIFO fills on the 77-byte config-string reply and
+        // tx_ready drops. The drain watchdog must reset the FIFO by
+        // itself (tx_ready returns while the transmitter is still
+        // parked), and a 0x17 link resync must then drop the FSM's
+        // half-sent frame and the queued stale bytes, so the next poll
+        // is answered cleanly with no garbage ahead of it.
+        force dut.fast_uart.ftx_busy_w = 1'b1;
+        tx_byte(8'hAA); tx_byte(8'h00); tx_byte(8'h01); tx_byte(8'h02);
+        begin : wedge
+            integer waited;
+            waited = 0;
+            while (dut.tx_ready !== 1'b0 && waited < 100000) begin
+                @(posedge clk); waited = waited + 1;
+            end
+            if (dut.tx_ready !== 1'b0) begin
+                $display("FAIL: TX FIFO never filled behind parked transmitter");
+                $fatal(1, "tb_iosys_fastuart: wedge setup");
+            end
+            waited = 0;
+            while (dut.tx_ready !== 1'b1 && waited < 400000) begin
+                @(posedge clk); waited = waited + 1;
+            end
+            if (dut.tx_ready !== 1'b1) begin
+                $display("FAIL: drain watchdog never freed a full TX FIFO");
+                $fatal(1, "tb_iosys_fastuart: drain watchdog");
+            end
+        end
+        tx_byte(8'hAA); tx_byte(8'h00); tx_byte(8'h01); tx_byte(8'h17);
+        #50000;                               // resync lands, FIFO reset
+        release dut.fast_uart.ftx_busy_w;
+        expect_core_id;                       // clean reply, no stale bytes
+
         $display("tb_iosys_fastuart: PASS");
         $finish;
     end
